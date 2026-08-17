@@ -18,7 +18,7 @@ public class ProductoService(AppDbContext db, TimeProvider timeProvider) : IProd
         if (!string.IsNullOrWhiteSpace(texto))
         {
             var patron = $"%{texto.Trim()}%";
-            query = query.Where(p => EF.Functions.Like(p.Codigo, patron) || EF.Functions.Like(p.Nombre, patron));
+            query = query.Where(p => (p.Codigo != null && EF.Functions.Like(p.Codigo, patron)) || EF.Functions.Like(p.Nombre, patron));
             // Al buscar, se prioriza lo cotizado más recientemente sobre el orden alfabético.
             query = query.OrderByDescending(p => p.Precios.Select(pr => (DateOnly?)pr.FechaCotizacion).Max());
         }
@@ -51,13 +51,17 @@ public class ProductoService(AppDbContext db, TimeProvider timeProvider) : IProd
 
     public async Task<ProductoDto> CrearAsync(ProductoCrearDto dto, CancellationToken ct = default)
     {
-        var yaExiste = await db.Productos.AnyAsync(p => p.Codigo == dto.Codigo, ct);
-        if (yaExiste)
-            throw new InvalidOperationException($"Ya existe un producto con el código '{dto.Codigo}'.");
+        var codigo = NormalizarCodigo(dto.Codigo);
+        if (codigo is not null)
+        {
+            var yaExiste = await db.Productos.AnyAsync(p => p.Codigo == codigo, ct);
+            if (yaExiste)
+                throw new InvalidOperationException($"Ya existe un producto con el código '{codigo}'.");
+        }
 
         var producto = new Producto
         {
-            Codigo = dto.Codigo.Trim(),
+            Codigo = codigo,
             Nombre = dto.Nombre.Trim(),
             Descripcion = dto.Descripcion?.Trim(),
             UnidadMedida = dto.UnidadMedida?.Trim(),
@@ -77,6 +81,15 @@ public class ProductoService(AppDbContext db, TimeProvider timeProvider) : IProd
         if (producto is null)
             return null;
 
+        var codigo = NormalizarCodigo(dto.Codigo);
+        if (codigo is not null)
+        {
+            var yaExiste = await db.Productos.AnyAsync(p => p.Id != id && p.Codigo == codigo, ct);
+            if (yaExiste)
+                throw new InvalidOperationException($"Ya existe un producto con el código '{codigo}'.");
+        }
+
+        producto.Codigo = codigo;
         producto.Nombre = dto.Nombre.Trim();
         producto.Descripcion = dto.Descripcion?.Trim();
         producto.UnidadMedida = dto.UnidadMedida?.Trim();
@@ -91,4 +104,7 @@ public class ProductoService(AppDbContext db, TimeProvider timeProvider) : IProd
 
         return new ProductoDto(producto.Id, producto.Codigo, producto.Nombre, producto.Descripcion, producto.UnidadMedida, producto.Activo, ultimaFechaCotizacion);
     }
+
+    private static string? NormalizarCodigo(string? codigo)
+        => string.IsNullOrWhiteSpace(codigo) ? null : codigo.Trim();
 }

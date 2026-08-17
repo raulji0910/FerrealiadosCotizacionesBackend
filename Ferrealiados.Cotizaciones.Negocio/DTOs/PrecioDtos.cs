@@ -23,7 +23,7 @@ public record RegistrarPrecioDto(
 
 public record AlertaPrecioDto(
     int ProductoId,
-    string ProductoCodigo,
+    string? ProductoCodigo,
     string ProductoNombre,
     int ProveedorId,
     string ProveedorNombre,

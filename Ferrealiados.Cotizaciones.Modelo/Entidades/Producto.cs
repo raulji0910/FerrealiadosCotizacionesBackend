@@ -6,8 +6,10 @@ public class Producto
 {
     public int Id { get; set; }
 
+    // A diferencia de Jimaco, en Ferrealiados el código no es obligatorio: muchos ítems se
+    // cotizan sin un código de catálogo asignado todavía. Se puede completar más adelante.
     [MaxLength(50)]
-    public required string Codigo { get; set; }
+    public string? Codigo { get; set; }
 
     [MaxLength(500)]
     public required string Nombre { get; set; }
