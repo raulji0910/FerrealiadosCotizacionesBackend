@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="Ferrealiados.Cotizaciones.Api/Ferrealiados.Cotizaciones.Api.csproj" />
+  <Project Path="Ferrealiados.Cotizaciones.MigracionExcel/Ferrealiados.Cotizaciones.MigracionExcel.csproj" />
+  <Project Path="Ferrealiados.Cotizaciones.Modelo/Ferrealiados.Cotizaciones.Modelo.csproj" />
+  <Project Path="Ferrealiados.Cotizaciones.Negocio/Ferrealiados.Cotizaciones.Negocio.csproj" />
+  <Project Path="Ferrealiados.Cotizaciones.TestUnitarios/Ferrealiados.Cotizaciones.TestUnitarios.csproj" />
+</Solution>

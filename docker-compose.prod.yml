@@ -1,0 +1,32 @@
+# Complemento de producción — usar junto con docker-compose.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# A diferencia de Jimaco (que trae su propio Caddy), este stack NO levanta un
+# reverse proxy propio: el servidor Lightsail ya tiene uno corriendo para Jimaco
+# (jimaco-caddy) escuchando 80/443. Este proyecto se une a la misma red externa
+# donde vive ese Caddy (jimacocotizaciones_default) para que pueda alcanzar a
+# `web` por nombre de contenedor — el bloque de enrutamiento se agrega aparte al
+# Caddyfile de Jimaco (ver reference_jimaco_lightsail_ssh en memoria).
+# Ningún servicio expone puertos al host: solo son alcanzables por la red compartida.
+services:
+  api:
+    environment:
+      Cors__AllowedOrigins__0: https://ferrealiados.54-232-227-230.sslip.io
+    ports: []
+    networks:
+      - default
+
+  web:
+    ports: []
+    networks:
+      - default
+
+  db:
+    ports: []
+    networks:
+      - default
+
+networks:
+  default:
+    external: true
+    name: jimacocotizaciones_default

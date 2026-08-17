@@ -1,0 +1,69 @@
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: ferrealiados-db
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${SA_PASSWORD}
+    ports:
+      - "127.0.0.1:1434:1433"
+    volumes:
+      - ferrealiados-db-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  api:
+    build:
+      context: .
+      dockerfile: Ferrealiados.Cotizaciones.Api/Dockerfile
+    container_name: ferrealiados-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__Default: Server=db,1433;Database=FerrealiadosCotizaciones;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;
+      Jwt__Secret: ${JWT_SECRET}
+      Jwt__Issuer: Ferrealiados.Cotizaciones
+      Jwt__Audience: Ferrealiados.Cotizaciones
+      Jwt__ExpiracionMinutos: "480"
+      Cors__AllowedOrigins__0: http://localhost:4300
+    ports:
+      - "8090:8080"
+
+  web:
+    build:
+      context: ../Ferrealiados.Cotizaciones.Web
+      dockerfile: Dockerfile
+    container_name: ferrealiados-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "4300:8080"
+
+  # Herramienta de un solo uso para la carga inicial desde el Excel.
+  # No se levanta con "docker compose up" — se ejecuta explícitamente con:
+  #   docker compose --profile tools run --rm migracion
+  migracion:
+    build:
+      context: .
+      dockerfile: Ferrealiados.Cotizaciones.MigracionExcel/Dockerfile
+    container_name: ferrealiados-migracion
+    profiles: ["tools"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__Default: Server=db,1433;Database=FerrealiadosCotizaciones;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;
+    volumes:
+      - "${EXCEL_SOURCE_DIR}:/data:ro"
+    command: ["/data/COTIZACIONES REPORTE MARZO.xlsx"]
+
+volumes:
+  ferrealiados-db-data:
