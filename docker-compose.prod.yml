@@ -5,23 +5,33 @@
 # reverse proxy propio: el servidor Lightsail ya tiene uno corriendo para Jimaco
 # (jimaco-caddy) escuchando 80/443. Este proyecto se une a la misma red externa
 # donde vive ese Caddy (jimacocotizaciones_default) para que pueda alcanzar a
-# `web` por nombre de contenedor — el bloque de enrutamiento se agrega aparte al
-# Caddyfile de Jimaco (ver reference_jimaco_lightsail_ssh en memoria).
-# Ningún servicio expone puertos al host: solo son alcanzables por la red compartida.
+# `ferrealiados-web` por nombre de contenedor — el bloque de enrutamiento se
+# agrega aparte al Caddyfile de Jimaco (ver reference_jimaco_lightsail_ssh en
+# memoria). Ningún servicio expone puertos al host: solo son alcanzables por la
+# red compartida.
+#
+# IMPORTANTE: los nombres de servicio (ferrealiados-db/api/web) son intencionalmente
+# únicos y NO genéricos ("db"/"api"/"web") — Docker Compose registra el nombre del
+# servicio como alias DNS automático en cualquier red a la que se una, y no hay forma
+# de suprimirlo. Si dos proyectos en la misma red compartida usan el mismo nombre de
+# servicio genérico, el alias queda ambiguo (DNS round-robin entre ambos contenedores)
+# y el tráfico de uno puede terminar sirviéndose por el otro — pasó en la práctica al
+# desplegar esto la primera vez (el alias "api" resolvía a veces a Jimaco, a veces a
+# Ferrealiados). No renombrar estos servicios a algo genérico.
 services:
-  api:
+  ferrealiados-api:
     environment:
       Cors__AllowedOrigins__0: https://ferrealiados.54-232-227-230.sslip.io
     ports: []
     networks:
       - default
 
-  web:
+  ferrealiados-web:
     ports: []
     networks:
       - default
 
-  db:
+  ferrealiados-db:
     ports: []
     networks:
       - default

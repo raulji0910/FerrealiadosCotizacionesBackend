@@ -1,5 +1,5 @@
 services:
-  db:
+  ferrealiados-db:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: ferrealiados-db
     restart: unless-stopped
@@ -17,17 +17,17 @@ services:
       retries: 10
       start_period: 30s
 
-  api:
+  ferrealiados-api:
     build:
       context: .
       dockerfile: Ferrealiados.Cotizaciones.Api/Dockerfile
     container_name: ferrealiados-api
     restart: unless-stopped
     depends_on:
-      db:
+      ferrealiados-db:
         condition: service_healthy
     environment:
-      ConnectionStrings__Default: Server=db,1433;Database=FerrealiadosCotizaciones;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;
+      ConnectionStrings__Default: Server=ferrealiados-db,1433;Database=FerrealiadosCotizaciones;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;
       Jwt__Secret: ${JWT_SECRET}
       Jwt__Issuer: Ferrealiados.Cotizaciones
       Jwt__Audience: Ferrealiados.Cotizaciones
@@ -36,31 +36,31 @@ services:
     ports:
       - "8090:8080"
 
-  web:
+  ferrealiados-web:
     build:
       context: ../Ferrealiados.Cotizaciones.Web
       dockerfile: Dockerfile
     container_name: ferrealiados-web
     restart: unless-stopped
     depends_on:
-      - api
+      - ferrealiados-api
     ports:
       - "4300:8080"
 
   # Herramienta de un solo uso para la carga inicial desde el Excel.
   # No se levanta con "docker compose up" — se ejecuta explícitamente con:
-  #   docker compose --profile tools run --rm migracion
-  migracion:
+  #   docker compose --profile tools run --rm ferrealiados-migracion
+  ferrealiados-migracion:
     build:
       context: .
       dockerfile: Ferrealiados.Cotizaciones.MigracionExcel/Dockerfile
     container_name: ferrealiados-migracion
     profiles: ["tools"]
     depends_on:
-      db:
+      ferrealiados-db:
         condition: service_healthy
     environment:
-      ConnectionStrings__Default: Server=db,1433;Database=FerrealiadosCotizaciones;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;
+      ConnectionStrings__Default: Server=ferrealiados-db,1433;Database=FerrealiadosCotizaciones;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;
     volumes:
       - "${EXCEL_SOURCE_DIR}:/data:ro"
     command: ["/data/COTIZACIONES REPORTE MARZO.xlsx"]

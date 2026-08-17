@@ -36,7 +36,7 @@ The Angular frontend (`FerrealiadosCotizacionesFrontend` repo) is standalone com
 
 **Proveedor fields:** `Nombre` (unique, case-insensitive collation) is the real identity key for matching/dedup; `Nit` is the business-facing identifier. Most proveedores seeded from the initial import do **not** have a NIT (the source data didn't include it for most rows) — that's expected and fine, fill in via the UI as it becomes known.
 
-**Docker Compose topology** (`docker-compose.yml`): `db` (SQL Server 2022) → `api` (applies EF migrations + seeds admin on startup) → `web` (built from `../Ferrealiados.Cotizaciones.Web`, nginx reverse-proxies `/api/*` to `api` so the SPA and API are same-origin). `migracion` is a `profiles: ["tools"]` service — run it explicitly (see below). Local dev ports are deliberately different from Jimaco's (which may run at the same time on this machine): web `4300`, api `8090`, db `127.0.0.1:1434`.
+**Docker Compose topology** (`docker-compose.yml`): `ferrealiados-db` (SQL Server 2022) → `ferrealiados-api` (applies EF migrations + seeds admin on startup) → `ferrealiados-web` (built from `../Ferrealiados.Cotizaciones.Web`, nginx reverse-proxies `/api/*` to `ferrealiados-api` so the SPA and API are same-origin). `ferrealiados-migracion` is a `profiles: ["tools"]` service — run it explicitly (see below). Local dev ports are deliberately different from Jimaco's (which may run at the same time on this machine): web `4300`, api `8090`, db `127.0.0.1:1434`. **Service names are deliberately prefixed** (not generic `db`/`api`/`web`) — see the production section below for why this matters.
 
 ## Commands
 
@@ -50,13 +50,13 @@ dotnet ef migrations add <Nombre> --project Ferrealiados.Cotizaciones.Modelo --s
 ### Docker (full stack, local — requires the frontend repo checked out as `../Ferrealiados.Cotizaciones.Web`)
 ```bash
 cp .env.example .env                          # first time only, then fill in real values
-docker compose up -d                          # db + api + web
-docker compose build api web                  # rebuild after backend/frontend changes
-docker compose logs api --tail 50             # api applies migrations + seeds admin on boot; check here first
+docker compose up -d                          # ferrealiados-db + ferrealiados-api + ferrealiados-web
+docker compose build ferrealiados-api ferrealiados-web   # rebuild after backend/frontend changes
+docker compose logs ferrealiados-api --tail 50            # api applies migrations + seeds admin on boot; check here first
 
 # Excel migration — file lives under .env's EXCEL_SOURCE_DIR, mounted at /data. Format is auto-detected.
-docker compose --profile tools build migracion
-docker compose --profile tools run --rm migracion "/data/COTIZACIONES REPORTE MARZO.xlsx"
+docker compose --profile tools build ferrealiados-migracion
+docker compose --profile tools run --rm ferrealiados-migracion "/data/COTIZACIONES REPORTE MARZO.xlsx"
 ```
 Running from Git Bash on Windows: prefix with `MSYS_NO_PATHCONV=1` or the leading `/data/...` arg gets mangled into a bogus Windows path before Docker ever sees it.
 
@@ -68,10 +68,12 @@ Runs on the **same AWS Lightsail instance as Jimaco** (`54.232.227.230`, São Pa
 
 **No Caddy of its own.** Jimaco already runs a Caddy container (`jimaco-caddy`) bound to host ports 80/443 — a second Caddy on the same host would collide on those ports. Instead, this stack's `docker-compose.prod.yml` joins the **external** Docker network `jimacocotizaciones_default` (the one Jimaco's compose creates) so `jimaco-caddy` can reach `ferrealiados-web` by container name, and a **separate site block** was added to Jimaco's `Caddyfile` (`/opt/jimaco/Jimaco.Cotizaciones/Caddyfile`) routing the new subdomain there — Jimaco's own block was not touched. No service in this stack exposes ports to the host in production.
 
+**Service names must stay prefixed (`ferrealiados-db`/`-api`/`-web`), never generic.** Docker Compose registers the service name itself as a network alias on every network a container joins, and there's no way to suppress that default alias — only add more. The first time this stack was deployed with generic service names (`db`/`api`/`web`, matching Jimaco's own), the shared network ended up with two containers answering to the same alias (e.g. `api` resolved to Jimaco's API on some lookups and Ferrealiados' on others — confirmed live with repeated `getent hosts api` returning different IPs) — a live production hazard for Jimaco, caught and fixed before real traffic was routed to it. Don't reintroduce generic service names in this compose file.
+
 **Never build with `--build` directly on the server.** This is a burstable 2 vCPU instance shared with Jimaco (and other unrelated containers) already in production. A sibling project on this same server (`ProspeccionConstructoras`) hit this twice: building on the server exhausted CPU credits and made the instance unresponsive over SSH, requiring a manual reboot. Always build locally and load the image instead:
 ```bash
 # Local: build, then export
-docker compose -f docker-compose.yml -f docker-compose.prod.yml build api web
+docker compose -f docker-compose.yml -f docker-compose.prod.yml build ferrealiados-api ferrealiados-web
 docker save ferrealiadoscotizaciones-api:latest ferrealiadoscotizaciones-web:latest | gzip > /tmp/ferrealiados-images.tar.gz
 
 # Upload + load on server + recreate (no --build)
