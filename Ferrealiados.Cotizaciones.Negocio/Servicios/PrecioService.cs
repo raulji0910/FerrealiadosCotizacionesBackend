@@ -86,6 +86,25 @@ public class PrecioService(AppDbContext db, IConfiguracionService configuracionS
             EsMejorPrecio: false);
     }
 
+    // Edición rápida desde la grilla: cambia solo el % de ajuste (y recalcula Costo a partir del
+    // CostoBase ya guardado). No altera CostoBase, FechaCotizacion ni el ranking de "mejor precio"
+    // (que se decide por CostoBase, no por este Costo informativo).
+    public async Task<PrecioActualizadoDto?> ActualizarPorcentajeAsync(int productoId, int precioId, ActualizarPorcentajeDto dto, CancellationToken ct = default)
+    {
+        if (dto.PorcentajeAjuste < AjustePrecio.PorcentajeMinimo || dto.PorcentajeAjuste > AjustePrecio.PorcentajeMaximo)
+            throw new InvalidOperationException($"El porcentaje de ajuste debe estar entre {AjustePrecio.PorcentajeMinimo} y {AjustePrecio.PorcentajeMaximo}.");
+
+        var precio = await db.ProductoProveedorPrecios.FirstOrDefaultAsync(p => p.Id == precioId && p.ProductoId == productoId, ct);
+        if (precio is null)
+            return null;
+
+        precio.PorcentajeAjuste = dto.PorcentajeAjuste;
+        precio.Costo = AjustePrecio.CalcularCostoFinal(precio.CostoBase, dto.PorcentajeAjuste);
+        await db.SaveChangesAsync(ct);
+
+        return new PrecioActualizadoDto(precio.Id, precio.Costo, precio.PorcentajeAjuste);
+    }
+
     public async Task<PaginaResultado<AlertaPrecioDto>> ObtenerAlertasVencidasAsync(int pagina, int tamanoPagina, CancellationToken ct = default)
     {
         pagina = Math.Max(1, pagina);

@@ -108,6 +108,63 @@ public class PrecioServiceTests
     }
 
     [Fact]
+    public async Task ActualizarPorcentajeAsync_RecalculaCostoSinTocarCostoBase()
+    {
+        await using var db = CrearContexto();
+        var (producto, proveedor, _) = await SembrarProductoConDosProveedoresAsync(db);
+
+        var precio = new ProductoProveedorPrecio
+        {
+            ProductoId = producto.Id,
+            ProveedorId = proveedor.Id,
+            CostoBase = 100,
+            Costo = 100,
+            PorcentajeAjuste = 0,
+            FechaCotizacion = Hoy,
+            FechaRegistro = DateTime.UtcNow
+        };
+        db.ProductoProveedorPrecios.Add(precio);
+        await db.SaveChangesAsync();
+
+        var servicio = CrearServicio(db);
+        var resultado = await servicio.ActualizarPorcentajeAsync(producto.Id, precio.Id, new ActualizarPorcentajeDto(20));
+
+        Assert.NotNull(resultado);
+        Assert.Equal(120, resultado!.Costo);
+        Assert.Equal(20, resultado.PorcentajeAjuste);
+
+        var recargado = await db.ProductoProveedorPrecios.FindAsync(precio.Id);
+        Assert.Equal(100, recargado!.CostoBase);
+        Assert.Equal(120, recargado.Costo);
+    }
+
+    [Fact]
+    public async Task ActualizarPorcentajeAsync_DevuelveNullSiElPrecioNoPerteneceAlProducto()
+    {
+        await using var db = CrearContexto();
+        var (producto, proveedor, _) = await SembrarProductoConDosProveedoresAsync(db);
+        var otroProducto = new Producto { Nombre = "Otro", Activo = true, FechaCreacion = DateTime.UtcNow };
+        db.Productos.Add(otroProducto);
+
+        var precio = new ProductoProveedorPrecio
+        {
+            ProductoId = producto.Id,
+            ProveedorId = proveedor.Id,
+            CostoBase = 100,
+            Costo = 100,
+            FechaCotizacion = Hoy,
+            FechaRegistro = DateTime.UtcNow
+        };
+        db.ProductoProveedorPrecios.Add(precio);
+        await db.SaveChangesAsync();
+
+        var servicio = CrearServicio(db);
+        var resultado = await servicio.ActualizarPorcentajeAsync(otroProducto.Id, precio.Id, new ActualizarPorcentajeDto(20));
+
+        Assert.Null(resultado);
+    }
+
+    [Fact]
     public async Task RegistrarPrecioAsync_InsertaNuevoRegistroSinSobreescribirHistorico()
     {
         await using var db = CrearContexto();

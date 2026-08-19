@@ -69,4 +69,18 @@ public class ProductosController(IProductoService productoService, IPrecioServic
             return BadRequest(new { mensaje = ex.Message });
         }
     }
+
+    [HttpPut("{id:int}/precios/{precioId:int}")]
+    public async Task<ActionResult<PrecioActualizadoDto>> ActualizarPorcentajePrecio(int id, int precioId, ActualizarPorcentajeDto dto, CancellationToken ct)
+    {
+        try
+        {
+            var actualizado = await precioService.ActualizarPorcentajeAsync(id, precioId, dto, ct);
+            return actualizado is null ? NotFound() : Ok(actualizado);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { mensaje = ex.Message });
+        }
+    }
 }

@@ -21,6 +21,11 @@ public record RegistrarPrecioDto(
     string? Observaciones,
     string? CreadoPor);
 
+// Edición rápida del % de ajuste desde la grilla — solo toca PorcentajeAjuste/Costo, nunca CostoBase.
+public record ActualizarPorcentajeDto(int PorcentajeAjuste);
+
+public record PrecioActualizadoDto(int PrecioId, decimal Costo, int PorcentajeAjuste);
+
 public record AlertaPrecioDto(
     int ProductoId,
     string? ProductoCodigo,
