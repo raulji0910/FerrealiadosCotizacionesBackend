@@ -23,6 +23,8 @@ public class PrecioService(AppDbContext db, IConfiguracionService configuracionS
                 p.Costo,
                 p.CostoBase,
                 p.PorcentajeAjuste,
+                p.Iva,
+                AjustePrecio.CalcularCostoConIva(p.CostoBase, p.Iva),
                 p.FechaCotizacion,
                 VigenciaPrecio.DiasDesde(p.FechaCotizacion, hoy),
                 VigenciaPrecio.EsVencido(p.FechaCotizacion, mesesVigencia, hoy),
@@ -61,6 +63,7 @@ public class PrecioService(AppDbContext db, IConfiguracionService configuracionS
             Costo = AjustePrecio.CalcularCostoFinal(dto.Costo, dto.PorcentajeAjuste),
             CostoBase = dto.Costo,
             PorcentajeAjuste = dto.PorcentajeAjuste,
+            Iva = dto.Iva,
             FechaCotizacion = dto.FechaCotizacion,
             Observaciones = dto.Observaciones?.Trim(),
             CreadoPor = dto.CreadoPor,
@@ -80,6 +83,8 @@ public class PrecioService(AppDbContext db, IConfiguracionService configuracionS
             precio.Costo,
             precio.CostoBase,
             precio.PorcentajeAjuste,
+            precio.Iva,
+            AjustePrecio.CalcularCostoConIva(precio.CostoBase, precio.Iva),
             precio.FechaCotizacion,
             VigenciaPrecio.DiasDesde(precio.FechaCotizacion, hoy),
             VigenciaPrecio.EsVencido(precio.FechaCotizacion, mesesVigencia, hoy),
@@ -103,6 +108,24 @@ public class PrecioService(AppDbContext db, IConfiguracionService configuracionS
         await db.SaveChangesAsync(ct);
 
         return new PrecioActualizadoDto(precio.Id, precio.Costo, precio.PorcentajeAjuste);
+    }
+
+    // Edición rápida desde la grilla: cambia solo el IVA (y recalcula CostoConIva al vuelo a partir
+    // del CostoBase ya guardado). No altera CostoBase, Costo, PorcentajeAjuste ni el ranking de
+    // "mejor precio" — IVA es independiente del ajuste de margen.
+    public async Task<IvaActualizadoDto?> ActualizarIvaAsync(int productoId, int precioId, ActualizarIvaDto dto, CancellationToken ct = default)
+    {
+        if (dto.Iva is not null && (dto.Iva < 0 || dto.Iva > 100))
+            throw new InvalidOperationException("El IVA debe estar entre 0 y 100, o vacío.");
+
+        var precio = await db.ProductoProveedorPrecios.FirstOrDefaultAsync(p => p.Id == precioId && p.ProductoId == productoId, ct);
+        if (precio is null)
+            return null;
+
+        precio.Iva = dto.Iva;
+        await db.SaveChangesAsync(ct);
+
+        return new IvaActualizadoDto(precio.Id, precio.Iva, AjustePrecio.CalcularCostoConIva(precio.CostoBase, precio.Iva));
     }
 
     public async Task<PaginaResultado<AlertaPrecioDto>> ObtenerAlertasVencidasAsync(int pagina, int tamanoPagina, CancellationToken ct = default)

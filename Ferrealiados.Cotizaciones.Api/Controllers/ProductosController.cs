@@ -83,4 +83,18 @@ public class ProductosController(IProductoService productoService, IPrecioServic
             return BadRequest(new { mensaje = ex.Message });
         }
     }
+
+    [HttpPut("{id:int}/precios/{precioId:int}/iva")]
+    public async Task<ActionResult<IvaActualizadoDto>> ActualizarIvaPrecio(int id, int precioId, ActualizarIvaDto dto, CancellationToken ct)
+    {
+        try
+        {
+            var actualizado = await precioService.ActualizarIvaAsync(id, precioId, dto, ct);
+            return actualizado is null ? NotFound() : Ok(actualizado);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { mensaje = ex.Message });
+        }
+    }
 }

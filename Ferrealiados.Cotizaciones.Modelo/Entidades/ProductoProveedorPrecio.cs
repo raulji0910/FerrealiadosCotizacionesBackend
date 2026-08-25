@@ -27,6 +27,13 @@ public class ProductoProveedorPrecio
     // Porcentaje (positivo o negativo, entero) que se sumó/restó al CostoBase para obtener Costo.
     public int PorcentajeAjuste { get; set; }
 
+    // Tarifa de IVA (19 o 5) elegida para calcular "costo con IVA" = CostoBase * (1 + Iva/100).
+    // Independiente de PorcentajeAjuste (son conceptos distintos: impuesto vs. margen). Null = no
+    // se ha elegido todavía (precios cargados antes de que existiera este campo). No se guarda el
+    // costo con IVA en sí — se calcula al vuelo a partir de CostoBase e Iva, igual que Costo con
+    // PorcentajeAjuste, pero sin duplicar la columna.
+    public int? Iva { get; set; }
+
     public DateOnly FechaCotizacion { get; set; }
 
     [MaxLength(500)]

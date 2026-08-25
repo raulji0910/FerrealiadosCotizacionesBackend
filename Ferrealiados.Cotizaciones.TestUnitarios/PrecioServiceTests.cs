@@ -181,7 +181,7 @@ public class PrecioServiceTests
         await db.SaveChangesAsync();
 
         var servicio = CrearServicio(db);
-        await servicio.RegistrarPrecioAsync(producto.Id, new RegistrarPrecioDto(proveedor.Id, 130, 0, Hoy, null, "test"));
+        await servicio.RegistrarPrecioAsync(producto.Id, new RegistrarPrecioDto(proveedor.Id, 130, 0, null, Hoy, null, "test"));
 
         var historico = await db.ProductoProveedorPrecios
             .Where(p => p.ProductoId == producto.Id && p.ProveedorId == proveedor.Id)
@@ -229,7 +229,7 @@ public class PrecioServiceTests
 
         var servicio = CrearServicio(db);
         var resultado = await servicio.RegistrarPrecioAsync(
-            producto.Id, new RegistrarPrecioDto(proveedor.Id, 100, 20, Hoy, null, "test"));
+            producto.Id, new RegistrarPrecioDto(proveedor.Id, 100, 20, null, Hoy, null, "test"));
 
         Assert.Equal(100, resultado.CostoBase);
         Assert.Equal(20, resultado.PorcentajeAjuste);
@@ -245,7 +245,53 @@ public class PrecioServiceTests
         var servicio = CrearServicio(db);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            servicio.RegistrarPrecioAsync(producto.Id, new RegistrarPrecioDto(proveedor.Id, 100, 101, Hoy, null, "test")));
+            servicio.RegistrarPrecioAsync(producto.Id, new RegistrarPrecioDto(proveedor.Id, 100, 101, null, Hoy, null, "test")));
+    }
+
+    [Fact]
+    public async Task RegistrarPrecioAsync_GuardaIvaYCalculaCostoConIva()
+    {
+        await using var db = CrearContexto();
+        var (producto, proveedor, _) = await SembrarProductoConDosProveedoresAsync(db);
+
+        var servicio = CrearServicio(db);
+        var resultado = await servicio.RegistrarPrecioAsync(
+            producto.Id, new RegistrarPrecioDto(proveedor.Id, 100, 0, 19, Hoy, null, "test"));
+
+        Assert.Equal(19, resultado.Iva);
+        Assert.Equal(119, resultado.CostoConIva);
+    }
+
+    [Fact]
+    public async Task ActualizarIvaAsync_RecalculaCostoConIvaSinTocarCostoBaseNiPorcentaje()
+    {
+        await using var db = CrearContexto();
+        var (producto, proveedor, _) = await SembrarProductoConDosProveedoresAsync(db);
+
+        var precio = new ProductoProveedorPrecio
+        {
+            ProductoId = producto.Id,
+            ProveedorId = proveedor.Id,
+            CostoBase = 100,
+            Costo = 130,
+            PorcentajeAjuste = 30,
+            FechaCotizacion = Hoy,
+            FechaRegistro = DateTime.UtcNow
+        };
+        db.ProductoProveedorPrecios.Add(precio);
+        await db.SaveChangesAsync();
+
+        var servicio = CrearServicio(db);
+        var resultado = await servicio.ActualizarIvaAsync(producto.Id, precio.Id, new ActualizarIvaDto(5));
+
+        Assert.NotNull(resultado);
+        Assert.Equal(5, resultado!.Iva);
+        Assert.Equal(105, resultado.CostoConIva);
+
+        var recargado = await db.ProductoProveedorPrecios.FindAsync(precio.Id);
+        Assert.Equal(100, recargado!.CostoBase);
+        Assert.Equal(130, recargado.Costo);
+        Assert.Equal(30, recargado.PorcentajeAjuste);
     }
 
     private sealed class TiempoFijo(DateTime ahora) : TimeProvider
