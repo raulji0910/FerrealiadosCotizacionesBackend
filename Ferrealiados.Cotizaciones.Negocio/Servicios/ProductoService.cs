@@ -32,7 +32,7 @@ public class ProductoService(AppDbContext db, TimeProvider timeProvider) : IProd
             .Skip((pagina - 1) * tamanoPagina)
             .Take(tamanoPagina)
             .Select(p => new ProductoDto(
-                p.Id, p.Codigo, p.Nombre, p.Descripcion, p.UnidadMedida, p.Activo,
+                p.Id, p.Codigo, p.Nombre, p.UnidadMedida, p.Activo,
                 p.Precios.Select(pr => (DateOnly?)pr.FechaCotizacion).Max()))
             .ToListAsync(ct);
 
@@ -44,7 +44,7 @@ public class ProductoService(AppDbContext db, TimeProvider timeProvider) : IProd
         return await db.Productos
             .Where(p => p.Id == id)
             .Select(p => new ProductoDto(
-                p.Id, p.Codigo, p.Nombre, p.Descripcion, p.UnidadMedida, p.Activo,
+                p.Id, p.Codigo, p.Nombre, p.UnidadMedida, p.Activo,
                 p.Precios.Select(pr => (DateOnly?)pr.FechaCotizacion).Max()))
             .FirstOrDefaultAsync(ct);
     }
@@ -63,7 +63,6 @@ public class ProductoService(AppDbContext db, TimeProvider timeProvider) : IProd
         {
             Codigo = codigo,
             Nombre = dto.Nombre.Trim(),
-            Descripcion = dto.Descripcion?.Trim(),
             UnidadMedida = dto.UnidadMedida?.Trim(),
             Activo = true,
             FechaCreacion = timeProvider.GetUtcNow().UtcDateTime
@@ -72,7 +71,7 @@ public class ProductoService(AppDbContext db, TimeProvider timeProvider) : IProd
         db.Productos.Add(producto);
         await db.SaveChangesAsync(ct);
 
-        return new ProductoDto(producto.Id, producto.Codigo, producto.Nombre, producto.Descripcion, producto.UnidadMedida, producto.Activo, null);
+        return new ProductoDto(producto.Id, producto.Codigo, producto.Nombre, producto.UnidadMedida, producto.Activo, null);
     }
 
     public async Task<ProductoDto?> ActualizarAsync(int id, ProductoActualizarDto dto, CancellationToken ct = default)
@@ -91,7 +90,6 @@ public class ProductoService(AppDbContext db, TimeProvider timeProvider) : IProd
 
         producto.Codigo = codigo;
         producto.Nombre = dto.Nombre.Trim();
-        producto.Descripcion = dto.Descripcion?.Trim();
         producto.UnidadMedida = dto.UnidadMedida?.Trim();
         producto.Activo = dto.Activo;
 
@@ -102,7 +100,7 @@ public class ProductoService(AppDbContext db, TimeProvider timeProvider) : IProd
             .Select(pr => (DateOnly?)pr.FechaCotizacion)
             .MaxAsync(ct);
 
-        return new ProductoDto(producto.Id, producto.Codigo, producto.Nombre, producto.Descripcion, producto.UnidadMedida, producto.Activo, ultimaFechaCotizacion);
+        return new ProductoDto(producto.Id, producto.Codigo, producto.Nombre, producto.UnidadMedida, producto.Activo, ultimaFechaCotizacion);
     }
 
     private static string? NormalizarCodigo(string? codigo)

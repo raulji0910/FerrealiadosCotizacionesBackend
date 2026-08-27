@@ -14,9 +14,6 @@ public class Producto
     [MaxLength(500)]
     public required string Nombre { get; set; }
 
-    [MaxLength(1000)]
-    public string? Descripcion { get; set; }
-
     [MaxLength(50)]
     public string? UnidadMedida { get; set; }
 
