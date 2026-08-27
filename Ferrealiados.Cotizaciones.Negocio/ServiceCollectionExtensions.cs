@@ -16,6 +16,10 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IJwtGenerador, JwtGenerador>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUsuarioService, UsuarioService>();
+        services.AddScoped<IClienteService, ClienteService>();
+        services.AddScoped<IConsecutivoCotizacionProvider, ConsecutivoCotizacionProvider>();
+        services.AddScoped<ICotizacionPdfBuilder, Documentos.CotizacionPdfBuilder>();
+        services.AddScoped<ICotizacionService, CotizacionService>();
         return services;
     }
 }

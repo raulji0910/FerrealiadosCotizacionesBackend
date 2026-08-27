@@ -12,7 +12,8 @@ public record PrecioProveedorDto(
     DateOnly FechaCotizacion,
     int DiasDesdeCotizacion,
     bool Vencido,
-    bool EsMejorPrecio);
+    bool EsMejorPrecio,
+    IReadOnlyList<MarcaCotizacionDto> Marcas);
 
 // Costo: lo que informó el proveedor, antes de ajuste. PorcentajeAjuste: -100 a 100, entero.
 // Iva: 19, 5, o null si no aplica/no se indicó.

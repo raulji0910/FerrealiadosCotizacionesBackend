@@ -14,6 +14,7 @@ public class PrecioService(AppDbContext db, IConfiguracionService configuracionS
         var hoy = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
 
         var vigentes = await ObtenerPreciosVigentesAsync(productoId, ct);
+        var marcasPorPrecio = await ObtenerMarcasPorPrecioAsync(vigentes.Select(p => p.Id), ct);
 
         var dtos = vigentes
             .Select(p => new PrecioProveedorDto(
@@ -28,7 +29,8 @@ public class PrecioService(AppDbContext db, IConfiguracionService configuracionS
                 p.FechaCotizacion,
                 VigenciaPrecio.DiasDesde(p.FechaCotizacion, hoy),
                 VigenciaPrecio.EsVencido(p.FechaCotizacion, mesesVigencia, hoy),
-                EsMejorPrecio: false))
+                EsMejorPrecio: false,
+                marcasPorPrecio.GetValueOrDefault(p.Id, [])))
             // CostoBase es el costo normal (comparable entre proveedores); Costo ya trae el ajuste de
             // porcentaje aplicado y es solo informativo, no debe usarse para decidir el mejor precio.
             .OrderBy(p => p.CostoBase)
@@ -88,7 +90,8 @@ public class PrecioService(AppDbContext db, IConfiguracionService configuracionS
             precio.FechaCotizacion,
             VigenciaPrecio.DiasDesde(precio.FechaCotizacion, hoy),
             VigenciaPrecio.EsVencido(precio.FechaCotizacion, mesesVigencia, hoy),
-            EsMejorPrecio: false);
+            EsMejorPrecio: false,
+            Marcas: []);
     }
 
     // Edición rápida desde la grilla: cambia solo el % de ajuste (y recalcula Costo a partir del
@@ -154,6 +157,24 @@ public class PrecioService(AppDbContext db, IConfiguracionService configuracionS
 
         var items = vencidas.Skip((pagina - 1) * tamanoPagina).Take(tamanoPagina).ToList();
         return new PaginaResultado<AlertaPrecioDto>(items, vencidas.Count, pagina, tamanoPagina);
+    }
+
+    // Trae, para cada precio, en qué cotizaciones (borrador o ya emitidas) está incluido ahora
+    // mismo — un mismo precio puede tener varias marcas activas simultáneas en códigos distintos.
+    private async Task<Dictionary<int, List<MarcaCotizacionDto>>> ObtenerMarcasPorPrecioAsync(IEnumerable<int> precioIds, CancellationToken ct)
+    {
+        var ids = precioIds.ToList();
+        if (ids.Count == 0)
+            return [];
+
+        var marcas = await db.CotizacionItems
+            .Where(i => i.ProductoProveedorPrecioId != null && ids.Contains(i.ProductoProveedorPrecioId.Value))
+            .Select(i => new { PrecioId = i.ProductoProveedorPrecioId!.Value, i.Id, i.CotizacionId, i.Cotizacion!.Codigo, i.Cotizacion!.Estado, i.Cantidad })
+            .ToListAsync(ct);
+
+        return marcas
+            .GroupBy(m => m.PrecioId)
+            .ToDictionary(g => g.Key, g => g.Select(m => new MarcaCotizacionDto(m.Id, m.CotizacionId, m.Codigo, m.Estado, m.Cantidad)).ToList());
     }
 
     // Un producto puede recotizarse varias veces con el mismo proveedor; el precio "vigente" de cada
