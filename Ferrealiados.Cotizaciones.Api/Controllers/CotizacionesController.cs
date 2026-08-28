@@ -96,6 +96,20 @@ public class CotizacionesController(ICotizacionService cotizacionService) : Cont
         }
     }
 
+    [HttpPost("{id:int}/reabrir")]
+    public async Task<ActionResult<CotizacionDetalleDto>> Reabrir(int id, CancellationToken ct)
+    {
+        try
+        {
+            var reabierta = await cotizacionService.ReabrirAsync(id, ct);
+            return reabierta is null ? NotFound() : Ok(reabierta);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { mensaje = ex.Message });
+        }
+    }
+
     [HttpGet("{id:int}/pdf")]
     public async Task<IActionResult> DescargarPdf(int id, CancellationToken ct)
     {

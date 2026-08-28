@@ -119,7 +119,7 @@ public class CotizacionPdfBuilder(IOptions<DatosEmpresaOptions> datosEmpresaOpti
             ValorCelda(tabla.Cell(), null); // El teléfono del cliente no se pide hoy en el sistema
             ValorCelda(tabla.Cell(), cotizacion.ClienteDireccion);
             ValorCelda(tabla.Cell(), cotizacion.ClienteEmail);
-            ValorCelda(tabla.Cell(), FormatearMoneda(cotizacion.Descuento));
+            ValorCelda(tabla.Cell(), cotizacion.Descuento > 0 ? FormatearMoneda(cotizacion.Descuento) : null);
             ValorCelda(tabla.Cell(), cotizacion.FormaPago);
         });
     }
@@ -142,16 +142,18 @@ public class CotizacionPdfBuilder(IOptions<DatosEmpresaOptions> datosEmpresaOpti
             tabla.ColumnsDefinition(columnas =>
             {
                 columnas.RelativeColumn(1);
-                columnas.RelativeColumn(5);
-                columnas.RelativeColumn(1.5f);
-                columnas.RelativeColumn(2);
-                columnas.RelativeColumn(2);
+                columnas.RelativeColumn(4.2f);
+                columnas.RelativeColumn(1);
+                columnas.RelativeColumn(1.3f);
+                columnas.RelativeColumn(1.8f);
+                columnas.RelativeColumn(1.8f);
             });
 
             tabla.Header(header =>
             {
                 EncabezadoItemCelda(header.Cell(), "Ítem");
                 EncabezadoItemCelda(header.Cell(), "Descripción");
+                EncabezadoItemCelda(header.Cell(), "IVA");
                 EncabezadoItemCelda(header.Cell(), "Cantidad");
                 EncabezadoItemCelda(header.Cell(), "Valor unitario");
                 EncabezadoItemCelda(header.Cell(), "Valor Total");
@@ -164,9 +166,14 @@ public class CotizacionPdfBuilder(IOptions<DatosEmpresaOptions> datosEmpresaOpti
                 var nombreProducto = item.ProductoCodigo is null
                     ? item.ProductoNombre
                     : $"{item.ProductoNombre} ({item.ProductoCodigo})";
+                // Solo informativo — no participa en el cálculo del precio del ítem, que sigue
+                // siendo el costo con el % de ajuste ya aplicado, sin IVA (ver decisión de diseño
+                // documentada en CotizacionItem.PrecioUnitario).
+                var iva = item.IvaSnapshot is null ? "-" : $"{item.IvaSnapshot}%";
 
                 FilaItemCelda(tabla.Cell(), fondo, (i + 1).ToString(), alinearDerecha: false);
                 FilaItemCelda(tabla.Cell(), fondo, nombreProducto, alinearDerecha: false);
+                FilaItemCelda(tabla.Cell(), fondo, iva, alinearDerecha: true);
                 FilaItemCelda(tabla.Cell(), fondo, item.Cantidad.ToString(), alinearDerecha: true);
                 FilaItemCelda(tabla.Cell(), fondo, FormatearMoneda(item.PrecioUnitario), alinearDerecha: true);
                 FilaItemCelda(tabla.Cell(), fondo, FormatearMoneda(item.Subtotal), alinearDerecha: true);
@@ -196,8 +203,11 @@ public class CotizacionPdfBuilder(IOptions<DatosEmpresaOptions> datosEmpresaOpti
             row.RelativeItem(2).Column(col =>
             {
                 FilaTotal(col, "Subtotal ítems", cotizacion.Total);
-                FilaTotal(col, "Descuento", -cotizacion.Descuento);
-                FilaTotal(col, "Subtotal", cotizacion.Subtotal);
+                if (cotizacion.Descuento > 0)
+                {
+                    FilaTotal(col, "Descuento", -cotizacion.Descuento);
+                    FilaTotal(col, "Subtotal", cotizacion.Subtotal);
+                }
 
                 foreach (var tramo in cotizacion.IvaDesglose)
                     FilaTotal(col, $"IVA ({tramo.Tarifa}%)", tramo.Valor);

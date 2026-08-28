@@ -14,5 +14,6 @@ public interface ICotizacionService
     Task<CotizacionItemDto?> ActualizarCantidadItemAsync(int itemId, ActualizarCantidadItemDto dto, CancellationToken ct = default);
 
     Task<CotizacionDetalleDto?> EmitirAsync(int id, EmitirCotizacionDto dto, CancellationToken ct = default);
+    Task<CotizacionDetalleDto?> ReabrirAsync(int id, CancellationToken ct = default);
     Task<byte[]?> GenerarPdfAsync(int id, CancellationToken ct = default);
 }

@@ -214,9 +214,10 @@ public class CotizacionService(
         if (cliente is null || !cliente.Activo)
             throw new InvalidOperationException("El cliente indicado no existe o no está activo.");
 
-        var consecutivo = await consecutivoProvider.ObtenerSiguienteAsync(ct);
+        // Si ya tenía un consecutivo (viene de un Reabrir), lo conserva — es la misma cotización
+        // oficial actualizada, no una nueva. Solo se consume la secuencia la primera vez.
+        cotizacion.Consecutivo ??= await consecutivoProvider.ObtenerSiguienteAsync(ct);
 
-        cotizacion.Consecutivo = consecutivo;
         cotizacion.ClienteId = cliente.Id;
         cotizacion.ClienteNombreSnapshot = cliente.Nombre;
         cotizacion.ClienteNitSnapshot = cliente.Nit;
@@ -229,6 +230,44 @@ public class CotizacionService(
         cotizacion.Descuento = descuento;
         cotizacion.Estado = EstadoCotizacion.Emitida;
         cotizacion.FechaEmision = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
+
+        await db.SaveChangesAsync(ct);
+
+        return MapDetalle(cotizacion);
+    }
+
+    // Vuelve una cotización Emitida a Borrador para poder seguirle agregando ítems (a pedido del
+    // cliente). Conserva el Consecutivo — al volver a emitirla, EmitirAsync lo reutiliza en vez
+    // de pedir uno nuevo, porque sigue siendo la misma cotización oficial, solo actualizada.
+    public async Task<CotizacionDetalleDto?> ReabrirAsync(int id, CancellationToken ct = default)
+    {
+        var cotizacion = await db.Cotizaciones.Include(c => c.Items).FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (cotizacion is null)
+            return null;
+
+        if (cotizacion.Estado != EstadoCotizacion.Emitida)
+            throw new InvalidOperationException("Solo se puede reabrir una cotización ya emitida.");
+
+        // El código es solo único mientras hay un Borrador activo con ese texto — si alguien más
+        // ya está usando el mismo código de trabajo para un borrador nuevo, no se puede reabrir
+        // esta hasta que ese otro se resuelva (se emita o se descarte).
+        var colision = await db.Cotizaciones
+            .AnyAsync(c => c.Id != id && c.Codigo == cotizacion.Codigo && c.Estado == EstadoCotizacion.Borrador, ct);
+        if (colision)
+            throw new InvalidOperationException($"Ya existe otro borrador en construcción con el código '{cotizacion.Codigo}'. No se puede reabrir hasta que ese código quede libre.");
+
+        cotizacion.Estado = EstadoCotizacion.Borrador;
+        cotizacion.ClienteId = null;
+        cotizacion.ClienteNombreSnapshot = null;
+        cotizacion.ClienteNitSnapshot = null;
+        cotizacion.ClienteContactoSnapshot = null;
+        cotizacion.ClienteEmailSnapshot = null;
+        cotizacion.ClienteDireccionSnapshot = null;
+        cotizacion.ClienteCiudadSnapshot = null;
+        cotizacion.FormaPago = null;
+        cotizacion.Nota = null;
+        cotizacion.Descuento = 0;
+        cotizacion.FechaEmision = null;
 
         await db.SaveChangesAsync(ct);
 

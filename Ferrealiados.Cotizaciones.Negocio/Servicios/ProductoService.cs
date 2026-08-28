@@ -103,6 +103,23 @@ public class ProductoService(AppDbContext db, TimeProvider timeProvider) : IProd
         return new ProductoDto(producto.Id, producto.Codigo, producto.Nombre, producto.UnidadMedida, producto.Activo, ultimaFechaCotizacion);
     }
 
+    public async Task<bool> EliminarAsync(int id, CancellationToken ct = default)
+    {
+        var producto = await db.Productos.FirstOrDefaultAsync(p => p.Id == id, ct);
+        if (producto is null)
+            return false;
+
+        var estaEnAlgunaCotizacion = await db.CotizacionItems.AnyAsync(i => i.ProductoId == id, ct);
+        if (estaEnAlgunaCotizacion)
+            throw new InvalidOperationException("No se puede eliminar: este producto está incluido en una o más cotizaciones.");
+
+        // Cascade en ProductoProveedorPrecio -> Producto (ver AppDbContext) borra también todo
+        // el historial de precios de proveedor de este producto.
+        db.Productos.Remove(producto);
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
+
     private static string? NormalizarCodigo(string? codigo)
         => string.IsNullOrWhiteSpace(codigo) ? null : codigo.Trim();
 }

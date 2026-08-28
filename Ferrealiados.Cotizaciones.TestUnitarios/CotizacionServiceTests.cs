@@ -324,6 +324,87 @@ public class CotizacionServiceTests
     }
 
     [Fact]
+    public async Task ReabrirAsync_VuelveABorradorYLimpiaDatosDelCliente()
+    {
+        await using var db = CrearContexto();
+        var (_, _, precio) = await SembrarProductoConPrecioAsync(db);
+        var cliente = await SembrarClienteAsync(db);
+        var consecutivoMock = new Mock<IConsecutivoCotizacionProvider>();
+        consecutivoMock.Setup(p => p.ObtenerSiguienteAsync(It.IsAny<CancellationToken>())).ReturnsAsync(7);
+
+        var servicio = CrearServicio(db, consecutivoMock.Object);
+        await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador1");
+        var cotizacion = await db.Cotizaciones.SingleAsync();
+        await servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, "Contado", "Nota", null));
+
+        var reabierta = await servicio.ReabrirAsync(cotizacion.Id);
+
+        Assert.NotNull(reabierta);
+        Assert.Equal(EstadoCotizacion.Borrador, reabierta!.Estado);
+        Assert.Equal(7, reabierta.Consecutivo); // conserva el número oficial
+        Assert.Null(reabierta.ClienteId);
+        Assert.Null(reabierta.ClienteNombre);
+        Assert.Null(reabierta.FormaPago);
+        Assert.Null(reabierta.Nota);
+        Assert.Equal(0, reabierta.Descuento);
+        Assert.Null(reabierta.FechaEmision);
+    }
+
+    [Fact]
+    public async Task ReabrirAsync_RechazaSiLaCotizacionEsBorrador()
+    {
+        await using var db = CrearContexto();
+        var (_, _, precio) = await SembrarProductoConPrecioAsync(db);
+        var servicio = CrearServicio(db);
+        await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador1");
+        var cotizacion = await db.Cotizaciones.SingleAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => servicio.ReabrirAsync(cotizacion.Id));
+    }
+
+    [Fact]
+    public async Task ReabrirAsync_RechazaSiOtroBorradorYaUsaElMismoCodigo()
+    {
+        await using var db = CrearContexto();
+        var (_, _, precio) = await SembrarProductoConPrecioAsync(db);
+        var cliente = await SembrarClienteAsync(db);
+        var consecutivoMock = new Mock<IConsecutivoCotizacionProvider>();
+        consecutivoMock.Setup(p => p.ObtenerSiguienteAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+        var servicio = CrearServicio(db, consecutivoMock.Object);
+        await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador1");
+        var cotizacion = await db.Cotizaciones.SingleAsync();
+        await servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, null, null, null));
+
+        // Alguien más vuelve a usar "PJ-5087" para un borrador nuevo, ahora que quedó libre.
+        await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador2");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => servicio.ReabrirAsync(cotizacion.Id));
+    }
+
+    [Fact]
+    public async Task EmitirAsync_ReutilizaElConsecutivoAlReemitirUnaCotizacionReabierta()
+    {
+        await using var db = CrearContexto();
+        var (_, _, precio) = await SembrarProductoConPrecioAsync(db);
+        var cliente = await SembrarClienteAsync(db);
+        var consecutivoMock = new Mock<IConsecutivoCotizacionProvider>();
+        consecutivoMock.Setup(p => p.ObtenerSiguienteAsync(It.IsAny<CancellationToken>())).ReturnsAsync(7);
+
+        var servicio = CrearServicio(db, consecutivoMock.Object);
+        await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador1");
+        var cotizacion = await db.Cotizaciones.SingleAsync();
+        await servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, null, null, null));
+        await servicio.ReabrirAsync(cotizacion.Id);
+
+        var reemitida = await servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, null, null, null));
+
+        Assert.NotNull(reemitida);
+        Assert.Equal(7, reemitida!.Consecutivo);
+        consecutivoMock.Verify(p => p.ObtenerSiguienteAsync(It.IsAny<CancellationToken>()), Times.Once); // solo se consumió una vez
+    }
+
+    [Fact]
     public async Task EmitirAsync_RechazaSiNoTieneItems()
     {
         await using var db = CrearContexto();

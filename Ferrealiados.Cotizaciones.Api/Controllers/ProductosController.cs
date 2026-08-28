@@ -46,6 +46,20 @@ public class ProductosController(IProductoService productoService, IPrecioServic
         return actualizado is null ? NotFound() : Ok(actualizado);
     }
 
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> Eliminar(int id, CancellationToken ct)
+    {
+        try
+        {
+            var eliminado = await productoService.EliminarAsync(id, ct);
+            return eliminado ? NoContent() : NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
+    }
+
     [HttpGet("{id:int}/precios")]
     public async Task<ActionResult<IReadOnlyList<PrecioProveedorDto>>> ObtenerPrecios(int id, CancellationToken ct)
     {
