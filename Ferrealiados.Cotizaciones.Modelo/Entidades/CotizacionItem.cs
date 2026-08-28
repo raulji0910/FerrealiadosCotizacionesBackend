@@ -37,6 +37,11 @@ public class CotizacionItem
     [Column(TypeName = "decimal(18,2)")]
     public decimal PrecioUnitario { get; set; }
 
+    // = ProductoProveedorPrecio.Iva al momento de marcar (19, 5, 0 o null si no se había
+    // indicado). Distintos ítems de una misma cotización pueden traer tarifas distintas — el PDF
+    // desglosa el IVA del total por cada tarifa presente (ver CotizacionService.MapDetalle).
+    public int? IvaSnapshot { get; set; }
+
     public int Cantidad { get; set; } = 1;
 
     public DateTime FechaMarcado { get; set; }

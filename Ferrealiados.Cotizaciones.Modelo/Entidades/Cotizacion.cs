@@ -30,11 +30,29 @@ public class Cotizacion
     [MaxLength(50)]
     public string? ClienteNitSnapshot { get; set; }
 
+    [MaxLength(200)]
+    public string? ClienteContactoSnapshot { get; set; }
+
+    [MaxLength(200)]
+    public string? ClienteEmailSnapshot { get; set; }
+
+    [MaxLength(300)]
+    public string? ClienteDireccionSnapshot { get; set; }
+
+    [MaxLength(100)]
+    public string? ClienteCiudadSnapshot { get; set; }
+
     [MaxLength(50)]
     public string? FormaPago { get; set; }
 
     [MaxLength(500)]
     public string? Nota { get; set; }
+
+    // Descuento global en pesos sobre el subtotal de ítems, capturado al emitir. 0 mientras es
+    // Borrador. Se reparte proporcionalmente entre las tarifas de IVA presentes en los ítems
+    // (ver CotizacionService.MapDetalle) para calcular el IVA correcto de cada tramo.
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal Descuento { get; set; }
 
     public DateOnly? FechaEmision { get; set; }
 

@@ -190,7 +190,7 @@ public class CotizacionServiceTests
         var servicio = CrearServicio(db, consecutivoMock.Object);
         var item = await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador1");
         var cotizacion = await db.Cotizaciones.SingleAsync();
-        await servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, null, null));
+        await servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, null, null, null));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => servicio.QuitarItemAsync(item.Id));
     }
@@ -224,7 +224,7 @@ public class CotizacionServiceTests
         await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador1");
         var cotizacion = await db.Cotizaciones.SingleAsync();
 
-        var emitida = await servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, "Contado", "Entrega en obra"));
+        var emitida = await servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, "Contado", "Entrega en obra", null));
 
         Assert.NotNull(emitida);
         Assert.Equal(EstadoCotizacion.Emitida, emitida!.Estado);
@@ -233,7 +233,94 @@ public class CotizacionServiceTests
         Assert.Equal(cliente.Nombre, emitida.ClienteNombre);
         Assert.Equal(Hoy, emitida.FechaEmision);
         Assert.Equal("Contado", emitida.FormaPago);
+        Assert.Equal("COT-FA-00042", emitida.ConsecutivoFormateado);
         consecutivoMock.Verify(p => p.ObtenerSiguienteAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task EmitirAsync_DesglosaIvaPorTarifaCuandoLosItemsTienenTarifasDistintas()
+    {
+        await using var db = CrearContexto();
+        var (producto, proveedor, precio19) = await SembrarProductoConPrecioAsync(db, costo: 100);
+        precio19.Iva = 19;
+        var proveedor2 = new Proveedor { Nombre = "Proveedor Dos", Activo = true };
+        db.Proveedores.Add(proveedor2);
+        await db.SaveChangesAsync();
+        var precio5 = new ProductoProveedorPrecio
+        {
+            ProductoId = producto.Id, ProveedorId = proveedor2.Id, CostoBase = 100, Costo = 100, Iva = 5,
+            FechaCotizacion = Hoy, FechaRegistro = DateTime.UtcNow
+        };
+        db.ProductoProveedorPrecios.Add(precio5);
+        await db.SaveChangesAsync();
+
+        var cliente = await SembrarClienteAsync(db);
+        var servicio = CrearServicio(db);
+        await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio19.Id, "PJ-5087", 1), "cotizador1"); // subtotal 100 al 19%
+        await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio5.Id, "PJ-5087", 1), "cotizador1");  // subtotal 100 al 5%
+        var cotizacion = await db.Cotizaciones.SingleAsync();
+
+        var emitida = await servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, null, null, null));
+
+        Assert.NotNull(emitida);
+        Assert.Equal(200, emitida!.Subtotal); // sin descuento
+        Assert.Equal(2, emitida.IvaDesglose.Count);
+        var tramo19 = emitida.IvaDesglose.Single(d => d.Tarifa == 19);
+        var tramo5 = emitida.IvaDesglose.Single(d => d.Tarifa == 5);
+        Assert.Equal(100, tramo19.Base);
+        Assert.Equal(19, tramo19.Valor);
+        Assert.Equal(100, tramo5.Base);
+        Assert.Equal(5, tramo5.Valor);
+        Assert.Equal(224, emitida.TotalGeneral); // 200 + 19 + 5
+    }
+
+    [Fact]
+    public async Task EmitirAsync_ReparteElDescuentoProporcionalmenteEntreTarifasDeIva()
+    {
+        await using var db = CrearContexto();
+        var (producto, proveedor, precio19) = await SembrarProductoConPrecioAsync(db, costo: 100);
+        precio19.Iva = 19;
+        var proveedor2 = new Proveedor { Nombre = "Proveedor Dos", Activo = true };
+        db.Proveedores.Add(proveedor2);
+        await db.SaveChangesAsync();
+        var precioSinIva = new ProductoProveedorPrecio
+        {
+            ProductoId = producto.Id, ProveedorId = proveedor2.Id, CostoBase = 100, Costo = 100, Iva = null,
+            FechaCotizacion = Hoy, FechaRegistro = DateTime.UtcNow
+        };
+        db.ProductoProveedorPrecios.Add(precioSinIva);
+        await db.SaveChangesAsync();
+
+        var cliente = await SembrarClienteAsync(db);
+        var servicio = CrearServicio(db);
+        await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio19.Id, "PJ-5087", 1), "cotizador1");     // 100, 19%
+        await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precioSinIva.Id, "PJ-5087", 1), "cotizador1"); // 100, sin IVA
+        var cotizacion = await db.Cotizaciones.SingleAsync();
+
+        // Descuento de 20 sobre subtotal 200 -> se reparte 50/50 entre los dos tramos (10 cada uno).
+        var emitida = await servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, null, null, 20));
+
+        Assert.NotNull(emitida);
+        Assert.Equal(20, emitida!.Descuento);
+        Assert.Equal(180, emitida.Subtotal); // 200 - 20
+        var tramo19 = Assert.Single(emitida.IvaDesglose);
+        Assert.Equal(90, tramo19.Base); // (100 - 10) del tramo con IVA
+        Assert.Equal(17.1m, tramo19.Valor); // 90 * 19%
+        Assert.Equal(197.1m, emitida.TotalGeneral); // 180 + 17.1
+    }
+
+    [Fact]
+    public async Task EmitirAsync_RechazaDescuentoMayorAlSubtotal()
+    {
+        await using var db = CrearContexto();
+        var (_, _, precio) = await SembrarProductoConPrecioAsync(db, costo: 100);
+        var cliente = await SembrarClienteAsync(db);
+        var servicio = CrearServicio(db);
+        await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador1");
+        var cotizacion = await db.Cotizaciones.SingleAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, null, null, 150)));
     }
 
     [Fact]
@@ -248,7 +335,7 @@ public class CotizacionServiceTests
         var servicio = CrearServicio(db);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, null, null)));
+            servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, null, null, null)));
     }
 
     [Fact]
@@ -263,10 +350,10 @@ public class CotizacionServiceTests
         var servicio = CrearServicio(db, consecutivoMock.Object);
         await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador1");
         var cotizacion = await db.Cotizaciones.SingleAsync();
-        await servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, null, null));
+        await servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, null, null, null));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, null, null)));
+            servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, null, null, null)));
     }
 
     [Fact]
@@ -281,10 +368,10 @@ public class CotizacionServiceTests
         var cotizacion = await db.Cotizaciones.SingleAsync();
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(clienteInactivo.Id, null, null)));
+            servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(clienteInactivo.Id, null, null, null)));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(9999, null, null)));
+            servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(9999, null, null, null)));
     }
 
     [Fact]

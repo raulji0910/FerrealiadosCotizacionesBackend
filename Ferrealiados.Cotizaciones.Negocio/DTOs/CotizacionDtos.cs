@@ -20,6 +20,7 @@ public record CotizacionItemDto(
     int ProveedorId,
     string ProveedorNombre,
     decimal PrecioUnitario,
+    int? IvaSnapshot,
     int Cantidad,
     decimal Subtotal);
 
@@ -30,6 +31,7 @@ public record CotizacionResumenDto(
     string Codigo,
     EstadoCotizacion Estado,
     int? Consecutivo,
+    string? ConsecutivoFormateado,
     int? ClienteId,
     string? ClienteNombre,
     DateOnly? FechaEmision,
@@ -37,20 +39,33 @@ public record CotizacionResumenDto(
     int CantidadItems,
     decimal Total);
 
+// Desglose del IVA del total por cada tarifa presente en los ítems de la cotización (pueden
+// convivir varias: 19%, 5%, 0%). Base = subtotal de esa tarifa ya con el descuento prorrateado.
+public record IvaDesgloseDto(int Tarifa, decimal Base, decimal Valor);
+
 public record CotizacionDetalleDto(
     int Id,
     string Codigo,
     EstadoCotizacion Estado,
     int? Consecutivo,
+    string? ConsecutivoFormateado,
     int? ClienteId,
     string? ClienteNombre,
     string? ClienteNit,
+    string? ClienteContacto,
+    string? ClienteEmail,
+    string? ClienteDireccion,
+    string? ClienteCiudad,
     string? FormaPago,
     string? Nota,
     DateOnly? FechaEmision,
     DateTime FechaCreacion,
     string? CreadoPor,
     IReadOnlyList<CotizacionItemDto> Items,
-    decimal Total);
+    decimal Total,
+    decimal Descuento,
+    decimal Subtotal,
+    IReadOnlyList<IvaDesgloseDto> IvaDesglose,
+    decimal TotalGeneral);
 
-public record EmitirCotizacionDto(int ClienteId, string? FormaPago, string? Nota);
+public record EmitirCotizacionDto(int ClienteId, string? FormaPago, string? Nota, decimal? Descuento);

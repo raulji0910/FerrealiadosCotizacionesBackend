@@ -27,7 +27,7 @@ public class ClienteService(AppDbContext db) : IClienteService
         var items = await query
             .Skip((pagina - 1) * tamanoPagina)
             .Take(tamanoPagina)
-            .Select(c => new ClienteDto(c.Id, c.Nombre, c.Nit, c.Direccion, c.Telefono, c.Ciudad, c.Activo))
+            .Select(c => new ClienteDto(c.Id, c.Nombre, c.Nit, c.Direccion, c.Telefono, c.Ciudad, c.Contacto, c.Email, c.Activo))
             .ToListAsync(ct);
 
         return new PaginaResultado<ClienteDto>(items, total, pagina, tamanoPagina);
@@ -38,7 +38,7 @@ public class ClienteService(AppDbContext db) : IClienteService
         return await db.Clientes
             .Where(c => c.Activo)
             .OrderBy(c => c.Nombre)
-            .Select(c => new ClienteDto(c.Id, c.Nombre, c.Nit, c.Direccion, c.Telefono, c.Ciudad, c.Activo))
+            .Select(c => new ClienteDto(c.Id, c.Nombre, c.Nit, c.Direccion, c.Telefono, c.Ciudad, c.Contacto, c.Email, c.Activo))
             .ToListAsync(ct);
     }
 
@@ -46,7 +46,7 @@ public class ClienteService(AppDbContext db) : IClienteService
     {
         return await db.Clientes
             .Where(c => c.Id == id)
-            .Select(c => new ClienteDto(c.Id, c.Nombre, c.Nit, c.Direccion, c.Telefono, c.Ciudad, c.Activo))
+            .Select(c => new ClienteDto(c.Id, c.Nombre, c.Nit, c.Direccion, c.Telefono, c.Ciudad, c.Contacto, c.Email, c.Activo))
             .FirstOrDefaultAsync(ct);
     }
 
@@ -67,13 +67,15 @@ public class ClienteService(AppDbContext db) : IClienteService
             Direccion = dto.Direccion?.Trim(),
             Telefono = dto.Telefono?.Trim(),
             Ciudad = dto.Ciudad?.Trim(),
+            Contacto = dto.Contacto?.Trim(),
+            Email = dto.Email?.Trim(),
             Activo = true
         };
 
         db.Clientes.Add(cliente);
         await db.SaveChangesAsync(ct);
 
-        return new ClienteDto(cliente.Id, cliente.Nombre, cliente.Nit, cliente.Direccion, cliente.Telefono, cliente.Ciudad, cliente.Activo);
+        return new ClienteDto(cliente.Id, cliente.Nombre, cliente.Nit, cliente.Direccion, cliente.Telefono, cliente.Ciudad, cliente.Contacto, cliente.Email, cliente.Activo);
     }
 
     public async Task<ClienteDto?> ActualizarAsync(int id, ClienteActualizarDto dto, CancellationToken ct = default)
@@ -91,11 +93,13 @@ public class ClienteService(AppDbContext db) : IClienteService
         cliente.Direccion = dto.Direccion?.Trim();
         cliente.Telefono = dto.Telefono?.Trim();
         cliente.Ciudad = dto.Ciudad?.Trim();
+        cliente.Contacto = dto.Contacto?.Trim();
+        cliente.Email = dto.Email?.Trim();
         cliente.Activo = dto.Activo;
 
         await db.SaveChangesAsync(ct);
 
-        return new ClienteDto(cliente.Id, cliente.Nombre, cliente.Nit, cliente.Direccion, cliente.Telefono, cliente.Ciudad, cliente.Activo);
+        return new ClienteDto(cliente.Id, cliente.Nombre, cliente.Nit, cliente.Direccion, cliente.Telefono, cliente.Ciudad, cliente.Contacto, cliente.Email, cliente.Activo);
     }
 
     private static string? NormalizarNit(string? nit)

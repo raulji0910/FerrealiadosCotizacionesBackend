@@ -21,6 +21,13 @@ public class Cliente
     [MaxLength(100)]
     public string? Ciudad { get; set; }
 
+    // Persona de contacto y correo — se usan en el encabezado del PDF de cotización.
+    [MaxLength(200)]
+    public string? Contacto { get; set; }
+
+    [MaxLength(200)]
+    public string? Email { get; set; }
+
     public bool Activo { get; set; } = true;
 
     public ICollection<Cotizacion> Cotizaciones { get; set; } = new List<Cotizacion>();

@@ -33,10 +33,14 @@ public class CotizacionService(
         query = query.OrderByDescending(c => c.FechaCreacion);
 
         var total = await query.CountAsync(ct);
-        var items = await query
+
+        // Se trae primero como proyección plana (paginada en SQL) y se formatea el consecutivo
+        // en memoria después: la interpolación con formato ("D5") no es traducible a SQL.
+        var filas = await query
             .Skip((pagina - 1) * tamanoPagina)
             .Take(tamanoPagina)
-            .Select(c => new CotizacionResumenDto(
+            .Select(c => new
+            {
                 c.Id,
                 c.Codigo,
                 c.Estado,
@@ -45,9 +49,25 @@ public class CotizacionService(
                 c.ClienteNombreSnapshot,
                 c.FechaEmision,
                 c.FechaCreacion,
-                c.Items.Count,
-                c.Items.Sum(i => i.PrecioUnitario * i.Cantidad)))
+                CantidadItems = c.Items.Count,
+                Total = c.Items.Sum(i => i.PrecioUnitario * i.Cantidad)
+            })
             .ToListAsync(ct);
+
+        var items = filas
+            .Select(c => new CotizacionResumenDto(
+                c.Id,
+                c.Codigo,
+                c.Estado,
+                c.Consecutivo,
+                FormatearConsecutivo(c.Consecutivo),
+                c.ClienteId,
+                c.ClienteNombreSnapshot,
+                c.FechaEmision,
+                c.FechaCreacion,
+                c.CantidadItems,
+                c.Total))
+            .ToList();
 
         return new PaginaResultado<CotizacionResumenDto>(items, total, pagina, tamanoPagina);
     }
@@ -68,8 +88,9 @@ public class CotizacionService(
 
     // Marca un precio para una cotización en construcción: reutiliza el borrador con ese código si
     // ya existe, o crea uno nuevo. Si el mismo precio ya estaba marcado en ese mismo borrador, suma
-    // la cantidad al ítem existente en vez de duplicar la línea. El precio queda congelado
-    // (PrecioUnitario = Costo, "costo con % de ajuste" ya calculado, sin IVA) tal como esté en ese momento.
+    // la cantidad al ítem existente en vez de duplicar la línea. El precio y el IVA quedan
+    // congelados (PrecioUnitario = Costo, "costo con % de ajuste" ya calculado, sin IVA; IvaSnapshot
+    // = tarifa del precio en ese momento) tal como estén al marcar — no se actualizan al fusionar.
     public async Task<CotizacionItemDto> MarcarPrecioAsync(MarcarPrecioDto dto, string? usuario, CancellationToken ct = default)
     {
         if (dto.Cantidad < 1)
@@ -109,6 +130,7 @@ public class CotizacionService(
                 ProveedorId = precio.ProveedorId,
                 ProveedorNombreSnapshot = precio.Proveedor!.Nombre,
                 PrecioUnitario = precio.Costo,
+                IvaSnapshot = precio.Iva,
                 Cantidad = dto.Cantidad,
                 FechaMarcado = timeProvider.GetUtcNow().UtcDateTime,
                 MarcadoPor = usuario
@@ -164,10 +186,11 @@ public class CotizacionService(
     }
 
     // Transición Borrador -> Emitida: asigna Cliente + Consecutivo (atómico, ver
-    // IConsecutivoCotizacionProvider) + FechaEmision, y congela snapshot del cliente. A partir de
-    // acá la cotización queda fija — QuitarItemAsync/ActualizarCantidadItemAsync ya no la tocan.
-    // DbUpdateConcurrencyException (por RowVersion) se deja propagar tal cual: la maneja el
-    // controller como 409, para el caso de que el mismo borrador se intente emitir dos veces en paralelo.
+    // IConsecutivoCotizacionProvider) + FechaEmision + Descuento, y congela snapshot del cliente
+    // (incluye Contacto/Email, no solo Nombre/Nit). A partir de acá la cotización queda fija —
+    // QuitarItemAsync/ActualizarCantidadItemAsync ya no la tocan. DbUpdateConcurrencyException
+    // (por RowVersion) se deja propagar tal cual: la maneja el controller como 409, para el caso
+    // de que el mismo borrador se intente emitir dos veces en paralelo.
     public async Task<CotizacionDetalleDto?> EmitirAsync(int id, EmitirCotizacionDto dto, CancellationToken ct = default)
     {
         var cotizacion = await db.Cotizaciones.Include(c => c.Items).FirstOrDefaultAsync(c => c.Id == id, ct);
@@ -180,6 +203,13 @@ public class CotizacionService(
         if (cotizacion.Items.Count == 0)
             throw new InvalidOperationException("La cotización no tiene ítems para emitir.");
 
+        var subtotalItems = cotizacion.Items.Sum(i => i.PrecioUnitario * i.Cantidad);
+        var descuento = dto.Descuento ?? 0;
+        if (descuento < 0)
+            throw new InvalidOperationException("El descuento no puede ser negativo.");
+        if (descuento > subtotalItems)
+            throw new InvalidOperationException("El descuento no puede ser mayor al subtotal de la cotización.");
+
         var cliente = await db.Clientes.FirstOrDefaultAsync(c => c.Id == dto.ClienteId, ct);
         if (cliente is null || !cliente.Activo)
             throw new InvalidOperationException("El cliente indicado no existe o no está activo.");
@@ -190,8 +220,13 @@ public class CotizacionService(
         cotizacion.ClienteId = cliente.Id;
         cotizacion.ClienteNombreSnapshot = cliente.Nombre;
         cotizacion.ClienteNitSnapshot = cliente.Nit;
+        cotizacion.ClienteContactoSnapshot = cliente.Contacto;
+        cotizacion.ClienteEmailSnapshot = cliente.Email;
+        cotizacion.ClienteDireccionSnapshot = cliente.Direccion;
+        cotizacion.ClienteCiudadSnapshot = cliente.Ciudad;
         cotizacion.FormaPago = dto.FormaPago?.Trim();
         cotizacion.Nota = dto.Nota?.Trim();
+        cotizacion.Descuento = descuento;
         cotizacion.Estado = EstadoCotizacion.Emitida;
         cotizacion.FechaEmision = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
 
@@ -246,6 +281,8 @@ public class CotizacionService(
 
     private static string NormalizarCodigo(string codigo) => codigo.Trim().ToUpperInvariant();
 
+    private static string? FormatearConsecutivo(int? consecutivo) => consecutivo is null ? null : $"COT-FA-{consecutivo.Value:D5}";
+
     private static CotizacionItemDto MapItem(CotizacionItem item) => new(
         item.Id,
         item.CotizacionId,
@@ -256,26 +293,61 @@ public class CotizacionService(
         item.ProveedorId,
         item.ProveedorNombreSnapshot,
         item.PrecioUnitario,
+        item.IvaSnapshot,
         item.Cantidad,
         item.PrecioUnitario * item.Cantidad);
 
+    // El descuento (global, en pesos) se reparte proporcionalmente entre las tarifas de IVA
+    // presentes en los ítems, según la participación de cada tramo en el subtotal — así, si una
+    // cotización mezcla productos con 19%/5%/0% de IVA, cada tramo paga IVA sobre su propia base
+    // ya descontada, en vez de aplicar una sola tarifa al total completo (que sería incorrecto si
+    // los ítems no comparten la misma tarifa).
     private static CotizacionDetalleDto MapDetalle(Cotizacion cotizacion)
     {
         var items = cotizacion.Items.Select(MapItem).ToList();
+        var subtotalItems = items.Sum(i => i.Subtotal);
+        var descuento = cotizacion.Descuento;
+        var subtotalConDescuento = subtotalItems - descuento;
+
+        var ivaDesglose = items
+            .GroupBy(i => i.IvaSnapshot ?? 0)
+            .Where(g => g.Key > 0)
+            .Select(g =>
+            {
+                var subtotalGrupo = g.Sum(i => i.Subtotal);
+                var proporcion = subtotalItems > 0 ? subtotalGrupo / subtotalItems : 0;
+                var baseGravable = Math.Round(subtotalGrupo - (descuento * proporcion), 2);
+                var valorIva = Math.Round(baseGravable * g.Key / 100m, 2);
+                return new IvaDesgloseDto(g.Key, baseGravable, valorIva);
+            })
+            .OrderByDescending(d => d.Tarifa)
+            .ToList();
+
+        var totalGeneral = subtotalConDescuento + ivaDesglose.Sum(d => d.Valor);
+
         return new CotizacionDetalleDto(
             cotizacion.Id,
             cotizacion.Codigo,
             cotizacion.Estado,
             cotizacion.Consecutivo,
+            FormatearConsecutivo(cotizacion.Consecutivo),
             cotizacion.ClienteId,
             cotizacion.ClienteNombreSnapshot,
             cotizacion.ClienteNitSnapshot,
+            cotizacion.ClienteContactoSnapshot,
+            cotizacion.ClienteEmailSnapshot,
+            cotizacion.ClienteDireccionSnapshot,
+            cotizacion.ClienteCiudadSnapshot,
             cotizacion.FormaPago,
             cotizacion.Nota,
             cotizacion.FechaEmision,
             cotizacion.FechaCreacion,
             cotizacion.CreadoPor,
             items,
-            items.Sum(i => i.Subtotal));
+            subtotalItems,
+            descuento,
+            subtotalConDescuento,
+            ivaDesglose,
+            totalGeneral);
     }
 }

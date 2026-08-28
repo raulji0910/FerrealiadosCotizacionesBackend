@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Reflection;
 using Ferrealiados.Cotizaciones.Negocio.DTOs;
 using Ferrealiados.Cotizaciones.Negocio.Interfaces;
 using Microsoft.Extensions.Options;
@@ -7,12 +9,29 @@ using QuestPDF.Infrastructure;
 
 namespace Ferrealiados.Cotizaciones.Negocio.Documentos;
 
-// Genera el PDF de una cotización ya emitida. No muestra el proveedor por ítem (información
+// Genera el PDF de una cotización ya emitida, siguiendo el formato histórico de la empresa
+// (encabezado con logo + datos de la empresa, grilla de datos del cliente, tabla de ítems,
+// observaciones fijas + desglose de totales). No muestra el proveedor por ítem (información
 // interna, no debe verla el cliente) — solo Producto, Cantidad, Precio unitario y Subtotal.
 public class CotizacionPdfBuilder(IOptions<DatosEmpresaOptions> datosEmpresaOptions) : ICotizacionPdfBuilder
 {
     private const string AzulMarca = "#0A578D";
     private const string NaranjaMarca = "#F38138";
+    private const string AzulClaro = "#EAF1F5";
+    private const string GrisTexto = "#4A4A4A";
+
+    private static readonly CultureInfo CulturaMoneda = CultureInfo.GetCultureInfo("es-CO");
+
+    private static readonly string[] Observaciones =
+    [
+        "Revise cuidadosamente su mercancía, no se acepta devolución, ni cambios.",
+        "Material cortado o fabricado no tiene devolución, ni cambio.",
+        "La disponibilidad de los elementos de la oferta está sujeta al inventario al momento de su compra.",
+        "Los precios pueden cambiar en cualquier momento, sin previo aviso y según sea el comportamiento de las divisas.",
+        "Entrega 1 día hábil, luego de la orden de compra (sujeto a ciudad)."
+    ];
+
+    private static readonly byte[] LogoBytes = CargarLogo();
 
     private readonly DatosEmpresaOptions empresa = datosEmpresaOptions.Value;
 
@@ -23,12 +42,11 @@ public class CotizacionPdfBuilder(IOptions<DatosEmpresaOptions> datosEmpresaOpti
             container.Page(page =>
             {
                 page.Size(PageSizes.A4);
-                page.Margin(30);
-                page.DefaultTextStyle(x => x.FontSize(10));
+                page.Margin(25);
+                page.DefaultTextStyle(x => x.FontSize(9).FontColor(GrisTexto));
 
                 page.Header().Element(c => ComponerEncabezado(c, cotizacion));
-                page.Content().Element(c => ComponerContenido(c, cotizacion));
-                page.Footer().Element(c => ComponerPie(c, cotizacion));
+                page.Content().PaddingTop(15).Element(c => ComponerContenido(c, cotizacion));
             });
         });
 
@@ -37,112 +55,200 @@ public class CotizacionPdfBuilder(IOptions<DatosEmpresaOptions> datosEmpresaOpti
 
     private void ComponerEncabezado(IContainer container, CotizacionDetalleDto cotizacion)
     {
-        container.Background(AzulMarca).Padding(15).Row(row =>
+        container.Column(col =>
         {
-            row.RelativeItem().Column(col =>
+            col.Item().Row(row =>
             {
-                col.Item().Text(empresa.Nombre).FontSize(18).Bold().FontColor(Colors.White);
-                if (!string.IsNullOrWhiteSpace(empresa.Nit))
-                    col.Item().Text($"NIT: {empresa.Nit}").FontColor(Colors.White);
+                row.ConstantItem(70).Image(LogoBytes);
+
+                row.RelativeItem().PaddingLeft(10).Column(datos =>
+                {
+                    datos.Item().Text(empresa.Nombre).FontSize(20).Bold().FontColor(AzulMarca);
+                    if (!string.IsNullOrWhiteSpace(empresa.Nit))
+                        datos.Item().Text($"NIT {empresa.Nit}").FontSize(9).Bold();
+                    if (!string.IsNullOrWhiteSpace(empresa.Direccion))
+                        datos.Item().Text(empresa.Direccion).FontSize(9).Bold();
+                    if (!string.IsNullOrWhiteSpace(empresa.Ciudad))
+                        datos.Item().Text(empresa.Ciudad).FontSize(9).Bold();
+                });
+
+                row.ConstantItem(150).Column(badge =>
+                {
+                    badge.Item().Background(AzulMarca).Padding(6).AlignCenter()
+                        .Text("COTIZACIÓN").FontColor(Colors.White).Bold().FontSize(11);
+                    badge.Item().BorderColor(AzulMarca).Border(1).PaddingVertical(6).AlignCenter()
+                        .Text(cotizacion.ConsecutivoFormateado ?? "-").FontColor(AzulMarca).Bold().FontSize(11);
+                });
             });
 
-            row.ConstantItem(220).Column(col =>
+            col.Item().PaddingTop(12).Element(c => ComponerGrillaCliente(c, cotizacion));
+        });
+    }
+
+    private void ComponerGrillaCliente(IContainer container, CotizacionDetalleDto cotizacion)
+    {
+        container.Table(tabla =>
+        {
+            tabla.ColumnsDefinition(columnas =>
             {
-                col.Item().AlignRight().Text($"COTIZACIÓN N.° {cotizacion.Consecutivo}").FontSize(14).Bold().FontColor(Colors.White);
-                col.Item().AlignRight().Text($"Fecha: {cotizacion.FechaEmision:dd/MM/yyyy}").FontColor(Colors.White);
+                columnas.RelativeColumn(2);
+                columnas.RelativeColumn(3);
+                columnas.RelativeColumn(2);
+                columnas.RelativeColumn(2);
+                columnas.RelativeColumn(2);
             });
+
+            EtiquetaCelda(tabla.Cell(), "NIT");
+            EtiquetaCelda(tabla.Cell(), "CLIENTE");
+            EtiquetaCelda(tabla.Cell(), "CONTACTO");
+            EtiquetaCelda(tabla.Cell(), "FECHA");
+            EtiquetaCelda(tabla.Cell(), "CIUDAD");
+
+            ValorCelda(tabla.Cell(), cotizacion.ClienteNit);
+            ValorCelda(tabla.Cell(), cotizacion.ClienteNombre);
+            ValorCelda(tabla.Cell(), cotizacion.ClienteContacto);
+            ValorCelda(tabla.Cell(), cotizacion.FechaEmision?.ToString("dd/MM/yyyy"));
+            ValorCelda(tabla.Cell(), cotizacion.ClienteCiudad);
+
+            EtiquetaCelda(tabla.Cell(), "TEL");
+            EtiquetaCelda(tabla.Cell(), "DIRECCIÓN");
+            EtiquetaCelda(tabla.Cell(), "EMAIL");
+            EtiquetaCelda(tabla.Cell(), "DESCUENTO");
+            EtiquetaCelda(tabla.Cell(), "FORMA DE PAGO");
+
+            ValorCelda(tabla.Cell(), null); // El teléfono del cliente no se pide hoy en el sistema
+            ValorCelda(tabla.Cell(), cotizacion.ClienteDireccion);
+            ValorCelda(tabla.Cell(), cotizacion.ClienteEmail);
+            ValorCelda(tabla.Cell(), FormatearMoneda(cotizacion.Descuento));
+            ValorCelda(tabla.Cell(), cotizacion.FormaPago);
         });
     }
 
     private void ComponerContenido(IContainer container, CotizacionDetalleDto cotizacion)
     {
-        container.PaddingTop(20).Column(col =>
+        container.Column(col =>
         {
             col.Spacing(15);
 
-            col.Item().Column(datos =>
+            col.Item().Element(c => ComponerTablaItems(c, cotizacion));
+            col.Item().Element(c => ComponerPie(c, cotizacion));
+        });
+    }
+
+    private void ComponerTablaItems(IContainer container, CotizacionDetalleDto cotizacion)
+    {
+        container.Table(tabla =>
+        {
+            tabla.ColumnsDefinition(columnas =>
             {
-                datos.Item().Text("Cliente").Bold().FontSize(11);
-                datos.Item().Text(cotizacion.ClienteNombre ?? "-");
-                if (!string.IsNullOrWhiteSpace(cotizacion.ClienteNit))
-                    datos.Item().Text($"NIT: {cotizacion.ClienteNit}");
-                if (!string.IsNullOrWhiteSpace(cotizacion.FormaPago))
-                    datos.Item().Text($"Forma de pago: {cotizacion.FormaPago}");
+                columnas.RelativeColumn(1);
+                columnas.RelativeColumn(5);
+                columnas.RelativeColumn(1.5f);
+                columnas.RelativeColumn(2);
+                columnas.RelativeColumn(2);
             });
 
-            col.Item().Table(tabla =>
+            tabla.Header(header =>
             {
-                tabla.ColumnsDefinition(columnas =>
-                {
-                    columnas.RelativeColumn(4);
-                    columnas.RelativeColumn(1);
-                    columnas.RelativeColumn(2);
-                    columnas.RelativeColumn(2);
-                });
-
-                tabla.Header(header =>
-                {
-                    EncabezadoCelda(header.Cell(), "Producto");
-                    EncabezadoCelda(header.Cell(), "Cant.");
-                    EncabezadoCelda(header.Cell(), "Precio unitario");
-                    EncabezadoCelda(header.Cell(), "Subtotal");
-                });
-
-                foreach (var item in cotizacion.Items)
-                {
-                    var nombreProducto = item.ProductoCodigo is null
-                        ? item.ProductoNombre
-                        : $"{item.ProductoNombre} ({item.ProductoCodigo})";
-
-                    CeldaTexto(tabla.Cell(), nombreProducto);
-                    CeldaTexto(tabla.Cell(), item.Cantidad.ToString());
-                    CeldaTexto(tabla.Cell(), FormatearMoneda(item.PrecioUnitario));
-                    CeldaTexto(tabla.Cell(), FormatearMoneda(item.Subtotal));
-                }
+                EncabezadoItemCelda(header.Cell(), "Ítem");
+                EncabezadoItemCelda(header.Cell(), "Descripción");
+                EncabezadoItemCelda(header.Cell(), "Cantidad");
+                EncabezadoItemCelda(header.Cell(), "Valor unitario");
+                EncabezadoItemCelda(header.Cell(), "Valor Total");
             });
 
-            col.Item().AlignRight().Background(NaranjaMarca).Padding(10).Text($"TOTAL: {FormatearMoneda(cotizacion.Total)}")
-                .FontSize(13).Bold().FontColor(Colors.White);
-
-            if (!string.IsNullOrWhiteSpace(cotizacion.Nota))
+            for (var i = 0; i < cotizacion.Items.Count; i++)
             {
-                col.Item().Column(nota =>
-                {
-                    nota.Item().Text("Nota").Bold();
-                    nota.Item().Text(cotizacion.Nota);
-                });
+                var item = cotizacion.Items[i];
+                var fondo = i % 2 == 0 ? AzulClaro : "#FFFFFF";
+                var nombreProducto = item.ProductoCodigo is null
+                    ? item.ProductoNombre
+                    : $"{item.ProductoNombre} ({item.ProductoCodigo})";
+
+                FilaItemCelda(tabla.Cell(), fondo, (i + 1).ToString(), alinearDerecha: false);
+                FilaItemCelda(tabla.Cell(), fondo, nombreProducto, alinearDerecha: false);
+                FilaItemCelda(tabla.Cell(), fondo, item.Cantidad.ToString(), alinearDerecha: true);
+                FilaItemCelda(tabla.Cell(), fondo, FormatearMoneda(item.PrecioUnitario), alinearDerecha: true);
+                FilaItemCelda(tabla.Cell(), fondo, FormatearMoneda(item.Subtotal), alinearDerecha: true);
             }
         });
     }
 
     private void ComponerPie(IContainer container, CotizacionDetalleDto cotizacion)
     {
-        container.PaddingTop(10).Column(col =>
+        container.Row(row =>
         {
-            col.Item().LineHorizontal(0.5f);
-            col.Item().PaddingTop(5).Row(row =>
+            row.RelativeItem(3).Column(col =>
             {
-                row.RelativeItem().Text(text =>
+                col.Item().Background(AzulMarca).Padding(5).Text("Observaciones").FontColor(Colors.White).Bold();
+                col.Item().PaddingTop(5).Column(obs =>
                 {
-                    text.Span(empresa.Nombre).Bold();
-                    if (!string.IsNullOrWhiteSpace(empresa.Direccion))
-                        text.Span($" · {empresa.Direccion}");
-                    if (!string.IsNullOrWhiteSpace(empresa.Ciudad))
-                        text.Span($" · {empresa.Ciudad}");
-                    if (!string.IsNullOrWhiteSpace(empresa.Telefono))
-                        text.Span($" · Tel: {empresa.Telefono}");
+                    foreach (var texto in Observaciones)
+                        obs.Item().Text($"* {texto}").FontSize(7.5f);
+
+                    if (!string.IsNullOrWhiteSpace(cotizacion.Nota))
+                        obs.Item().PaddingTop(3).Text($"* Nota: {cotizacion.Nota}").FontSize(7.5f).Bold();
                 });
-                row.ConstantItem(80).AlignRight().Text($"Código: {cotizacion.Codigo}").FontSize(8);
+            });
+
+            row.ConstantItem(15);
+
+            row.RelativeItem(2).Column(col =>
+            {
+                FilaTotal(col, "Subtotal ítems", cotizacion.Total);
+                FilaTotal(col, "Descuento", -cotizacion.Descuento);
+                FilaTotal(col, "Subtotal", cotizacion.Subtotal);
+
+                foreach (var tramo in cotizacion.IvaDesglose)
+                    FilaTotal(col, $"IVA ({tramo.Tarifa}%)", tramo.Valor);
+
+                col.Item().PaddingTop(4).Background(NaranjaMarca).Padding(8).Row(total =>
+                {
+                    total.RelativeItem().Text("TOTAL").FontColor(Colors.White).Bold().FontSize(12);
+                    total.RelativeItem().AlignRight().Text(FormatearMoneda(cotizacion.TotalGeneral)).FontColor(Colors.White).Bold().FontSize(12);
+                });
             });
         });
     }
 
-    private static void EncabezadoCelda(IContainer container, string texto)
-        => container.Background("#E8EEF3").Padding(5).Text(texto).Bold();
+    private static void FilaTotal(ColumnDescriptor col, string etiqueta, decimal valor)
+    {
+        col.Item().Row(fila =>
+        {
+            fila.RelativeItem().Text(etiqueta).FontSize(9);
+            fila.RelativeItem().AlignRight().Text(FormatearMoneda(valor)).FontSize(9).Bold();
+        });
+    }
 
-    private static void CeldaTexto(IContainer container, string texto)
-        => container.BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(5).Text(texto);
+    private static void EtiquetaCelda(IContainer container, string texto)
+        => container.Background(AzulMarca).Padding(4).Text(texto).FontColor(Colors.White).Bold().FontSize(8);
+
+    private static void ValorCelda(IContainer container, string? texto)
+        => container.BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4).Text(texto ?? "-").FontSize(8.5f);
+
+    private static void EncabezadoItemCelda(IContainer container, string texto)
+        => container.Background(AzulMarca).Padding(6).Text(texto).FontColor(Colors.White).Bold().FontSize(9);
+
+    private static void FilaItemCelda(IContainer container, string fondo, string texto, bool alinearDerecha)
+    {
+        var celda = container.Background(fondo).Padding(6);
+        var celdaAlineada = alinearDerecha ? celda.AlignRight() : celda;
+        celdaAlineada.Text(texto).FontSize(8.5f);
+    }
 
     private static string FormatearMoneda(decimal valor)
-        => $"$ {valor.ToString("N0", System.Globalization.CultureInfo.GetCultureInfo("es-CO"))}";
+    {
+        var signo = valor < 0 ? "-" : "";
+        return $"{signo}$ {Math.Abs(valor).ToString("N0", CulturaMoneda)}";
+    }
+
+    private static byte[] CargarLogo()
+    {
+        var assembly = typeof(CotizacionPdfBuilder).Assembly;
+        var nombreRecurso = assembly.GetManifestResourceNames().First(n => n.EndsWith("ferrealiados-logo.png", StringComparison.Ordinal));
+        using var stream = assembly.GetManifestResourceStream(nombreRecurso)!;
+        using var memoria = new MemoryStream();
+        stream.CopyTo(memoria);
+        return memoria.ToArray();
+    }
 }

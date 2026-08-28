@@ -5,6 +5,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Logo embebido en el ensamblado (no depende de que un archivo suelto se copie bien al
+         contenedor) — lo carga CotizacionPdfBuilder vía Assembly.GetManifestResourceStream. -->
+    <EmbeddedResource Include="Documentos\Assets\ferrealiados-logo.png" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="AutoMapper" Version="16.2.0" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
     <PackageReference Include="FluentValidation" Version="12.1.1" />
