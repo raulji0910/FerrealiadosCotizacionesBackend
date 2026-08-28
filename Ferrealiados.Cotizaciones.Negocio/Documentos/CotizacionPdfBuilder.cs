@@ -143,9 +143,9 @@ public class CotizacionPdfBuilder(IOptions<DatosEmpresaOptions> datosEmpresaOpti
             {
                 columnas.RelativeColumn(1);
                 columnas.RelativeColumn(4.2f);
-                columnas.RelativeColumn(1);
                 columnas.RelativeColumn(1.3f);
                 columnas.RelativeColumn(1.8f);
+                columnas.RelativeColumn(1);
                 columnas.RelativeColumn(1.8f);
             });
 
@@ -153,9 +153,9 @@ public class CotizacionPdfBuilder(IOptions<DatosEmpresaOptions> datosEmpresaOpti
             {
                 EncabezadoItemCelda(header.Cell(), "Ítem");
                 EncabezadoItemCelda(header.Cell(), "Descripción");
-                EncabezadoItemCelda(header.Cell(), "IVA");
                 EncabezadoItemCelda(header.Cell(), "Cantidad");
                 EncabezadoItemCelda(header.Cell(), "Valor unitario");
+                EncabezadoItemCelda(header.Cell(), "IVA");
                 EncabezadoItemCelda(header.Cell(), "Valor Total");
             });
 
@@ -173,9 +173,9 @@ public class CotizacionPdfBuilder(IOptions<DatosEmpresaOptions> datosEmpresaOpti
 
                 FilaItemCelda(tabla.Cell(), fondo, (i + 1).ToString(), alinearDerecha: false);
                 FilaItemCelda(tabla.Cell(), fondo, nombreProducto, alinearDerecha: false);
-                FilaItemCelda(tabla.Cell(), fondo, iva, alinearDerecha: true);
                 FilaItemCelda(tabla.Cell(), fondo, item.Cantidad.ToString(), alinearDerecha: true);
                 FilaItemCelda(tabla.Cell(), fondo, FormatearMoneda(item.PrecioUnitario), alinearDerecha: true);
+                FilaItemCelda(tabla.Cell(), fondo, iva, alinearDerecha: true);
                 FilaItemCelda(tabla.Cell(), fondo, FormatearMoneda(item.Subtotal), alinearDerecha: true);
             }
         });
