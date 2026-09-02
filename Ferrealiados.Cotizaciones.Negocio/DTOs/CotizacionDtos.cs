@@ -26,6 +26,12 @@ public record CotizacionItemDto(
 
 public record ActualizarCantidadItemDto(int Cantidad);
 
+// Edición manual del ítem antes de cerrar la cotización — solo afecta esta línea puntual, nunca
+// el ProductoProveedorPrecio del catálogo (el ítem ya es un snapshot independiente).
+public record ActualizarPrecioItemDto(decimal PrecioUnitario);
+
+public record ActualizarIvaItemDto(int? Iva);
+
 public record CotizacionResumenDto(
     int Id,
     string Codigo,

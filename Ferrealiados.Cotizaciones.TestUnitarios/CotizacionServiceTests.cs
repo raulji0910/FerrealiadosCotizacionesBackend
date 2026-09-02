@@ -211,6 +211,74 @@ public class CotizacionServiceTests
     }
 
     [Fact]
+    public async Task ActualizarPrecioItemAsync_CambiaSoloElItemSinTocarElPrecioDelCatalogo()
+    {
+        await using var db = CrearContexto();
+        var (_, _, precio) = await SembrarProductoConPrecioAsync(db, costo: 100);
+        var servicio = CrearServicio(db);
+        var item = await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 3), "cotizador1");
+
+        var actualizado = await servicio.ActualizarPrecioItemAsync(item.Id, new ActualizarPrecioItemDto(80));
+
+        Assert.NotNull(actualizado);
+        Assert.Equal(80, actualizado!.PrecioUnitario);
+        Assert.Equal(240, actualizado.Subtotal); // 80 * 3
+
+        var precioRecargado = await db.ProductoProveedorPrecios.FindAsync(precio.Id);
+        Assert.Equal(100, precioRecargado!.Costo); // el catálogo no se tocó
+    }
+
+    [Fact]
+    public async Task ActualizarPrecioItemAsync_RechazaValorNegativo()
+    {
+        await using var db = CrearContexto();
+        var (_, _, precio) = await SembrarProductoConPrecioAsync(db);
+        var servicio = CrearServicio(db);
+        var item = await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador1");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            servicio.ActualizarPrecioItemAsync(item.Id, new ActualizarPrecioItemDto(-10)));
+    }
+
+    [Fact]
+    public async Task ActualizarPrecioItemAsync_RechazaSiLaCotizacionYaFueEmitida()
+    {
+        await using var db = CrearContexto();
+        var (_, _, precio) = await SembrarProductoConPrecioAsync(db);
+        var cliente = await SembrarClienteAsync(db);
+        var consecutivoMock = new Mock<IConsecutivoCotizacionProvider>();
+        consecutivoMock.Setup(p => p.ObtenerSiguienteAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+        var servicio = CrearServicio(db, consecutivoMock.Object);
+        var item = await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador1");
+        var cotizacion = await db.Cotizaciones.SingleAsync();
+        await servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, null, null, null));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            servicio.ActualizarPrecioItemAsync(item.Id, new ActualizarPrecioItemDto(50)));
+    }
+
+    [Fact]
+    public async Task ActualizarIvaItemAsync_CambiaLaTarifaDelItemYSeReflejaEnElDesglose()
+    {
+        await using var db = CrearContexto();
+        var (_, _, precio) = await SembrarProductoConPrecioAsync(db, costo: 100);
+        var cliente = await SembrarClienteAsync(db);
+        var servicio = CrearServicio(db);
+        var item = await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador1");
+        Assert.Null(item.IvaSnapshot); // no traía IVA del catálogo
+
+        var actualizado = await servicio.ActualizarIvaItemAsync(item.Id, new ActualizarIvaItemDto(5));
+        Assert.Equal(5, actualizado!.IvaSnapshot);
+
+        var cotizacion = await db.Cotizaciones.SingleAsync();
+        var detalle = await servicio.ObtenerPorIdAsync(cotizacion.Id);
+        var tramo = Assert.Single(detalle!.IvaDesglose);
+        Assert.Equal(5, tramo.Tarifa);
+        Assert.Equal(5, tramo.Valor); // 100 * 5%
+    }
+
+    [Fact]
     public async Task EmitirAsync_AsignaConsecutivoClienteYFechaYCambiaEstado()
     {
         await using var db = CrearContexto();

@@ -12,6 +12,8 @@ public interface ICotizacionService
     Task<CotizacionItemDto> MarcarPrecioAsync(MarcarPrecioDto dto, string? usuario, CancellationToken ct = default);
     Task<bool> QuitarItemAsync(int itemId, CancellationToken ct = default);
     Task<CotizacionItemDto?> ActualizarCantidadItemAsync(int itemId, ActualizarCantidadItemDto dto, CancellationToken ct = default);
+    Task<CotizacionItemDto?> ActualizarPrecioItemAsync(int itemId, ActualizarPrecioItemDto dto, CancellationToken ct = default);
+    Task<CotizacionItemDto?> ActualizarIvaItemAsync(int itemId, ActualizarIvaItemDto dto, CancellationToken ct = default);
 
     Task<CotizacionDetalleDto?> EmitirAsync(int id, EmitirCotizacionDto dto, CancellationToken ct = default);
     Task<CotizacionDetalleDto?> ReabrirAsync(int id, CancellationToken ct = default);

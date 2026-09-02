@@ -185,6 +185,45 @@ public class CotizacionService(
         return MapItem(item);
     }
 
+    // Edición manual del precio unitario antes de emitir — solo toca este ítem (snapshot), nunca
+    // el ProductoProveedorPrecio del catálogo del que se marcó originalmente.
+    public async Task<CotizacionItemDto?> ActualizarPrecioItemAsync(int itemId, ActualizarPrecioItemDto dto, CancellationToken ct = default)
+    {
+        if (dto.PrecioUnitario < 0)
+            throw new InvalidOperationException("El precio unitario no puede ser negativo.");
+
+        var item = await db.CotizacionItems.Include(i => i.Cotizacion).FirstOrDefaultAsync(i => i.Id == itemId, ct);
+        if (item is null)
+            return null;
+
+        if (item.Cotizacion!.Estado != EstadoCotizacion.Borrador)
+            throw new InvalidOperationException("No se puede modificar una cotización ya emitida.");
+
+        item.PrecioUnitario = dto.PrecioUnitario;
+        await db.SaveChangesAsync(ct);
+
+        return MapItem(item);
+    }
+
+    // Igual que ActualizarPrecioItemAsync, pero para la tarifa de IVA informativa del ítem.
+    public async Task<CotizacionItemDto?> ActualizarIvaItemAsync(int itemId, ActualizarIvaItemDto dto, CancellationToken ct = default)
+    {
+        if (dto.Iva is not null && (dto.Iva < 0 || dto.Iva > 100))
+            throw new InvalidOperationException("El IVA debe estar entre 0 y 100, o vacío.");
+
+        var item = await db.CotizacionItems.Include(i => i.Cotizacion).FirstOrDefaultAsync(i => i.Id == itemId, ct);
+        if (item is null)
+            return null;
+
+        if (item.Cotizacion!.Estado != EstadoCotizacion.Borrador)
+            throw new InvalidOperationException("No se puede modificar una cotización ya emitida.");
+
+        item.IvaSnapshot = dto.Iva;
+        await db.SaveChangesAsync(ct);
+
+        return MapItem(item);
+    }
+
     // Transición Borrador -> Emitida: asigna Cliente + Consecutivo (atómico, ver
     // IConsecutivoCotizacionProvider) + FechaEmision + Descuento, y congela snapshot del cliente
     // (incluye Contacto/Email, no solo Nombre/Nit). A partir de acá la cotización queda fija —

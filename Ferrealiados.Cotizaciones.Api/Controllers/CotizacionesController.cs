@@ -78,6 +78,34 @@ public class CotizacionesController(ICotizacionService cotizacionService) : Cont
         }
     }
 
+    [HttpPut("items/{itemId:int}/precio")]
+    public async Task<ActionResult<CotizacionItemDto>> ActualizarPrecio(int itemId, ActualizarPrecioItemDto dto, CancellationToken ct)
+    {
+        try
+        {
+            var item = await cotizacionService.ActualizarPrecioItemAsync(itemId, dto, ct);
+            return item is null ? NotFound() : Ok(item);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { mensaje = ex.Message });
+        }
+    }
+
+    [HttpPut("items/{itemId:int}/iva")]
+    public async Task<ActionResult<CotizacionItemDto>> ActualizarIva(int itemId, ActualizarIvaItemDto dto, CancellationToken ct)
+    {
+        try
+        {
+            var item = await cotizacionService.ActualizarIvaItemAsync(itemId, dto, ct);
+            return item is null ? NotFound() : Ok(item);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { mensaje = ex.Message });
+        }
+    }
+
     [HttpPost("{id:int}/emitir")]
     public async Task<ActionResult<CotizacionDetalleDto>> Emitir(int id, EmitirCotizacionDto dto, CancellationToken ct)
     {
