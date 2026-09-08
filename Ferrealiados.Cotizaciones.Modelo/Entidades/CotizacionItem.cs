@@ -33,9 +33,18 @@ public class CotizacionItem
     public required string ProveedorNombreSnapshot { get; set; }
 
     // = ProductoProveedorPrecio.Costo (costo con % de ajuste ya aplicado, sin IVA) al momento
-    // de marcar. Es el precio que ve el cliente; congelado, no se recalcula después.
+    // de marcar. Es el precio que ve el cliente; congelado, no se recalcula después. Editable
+    // luego mientras la cotización es Borrador (ver CotizacionService.ActualizarPrecioItemAsync).
     [Column(TypeName = "decimal(18,2)")]
     public decimal PrecioUnitario { get; set; }
+
+    // = ProductoProveedorPrecio.CostoBase al momento de marcar (lo que de verdad cuesta el
+    // producto, sin el % de ajuste). Congelado — nunca se actualiza, ni al fusionar una marca
+    // repetida ni al editar PrecioUnitario. Sirve solo para calcular el % de ganancia informativo
+    // (ver CotizacionService.MapItem); nullable porque los ítems marcados antes de este campo no
+    // lo tienen.
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal? CostoBaseSnapshot { get; set; }
 
     // = ProductoProveedorPrecio.Iva al momento de marcar (19, 5, 0 o null si no se había
     // indicado). Distintos ítems de una misma cotización pueden traer tarifas distintas — el PDF

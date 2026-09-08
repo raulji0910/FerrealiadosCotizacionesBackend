@@ -22,7 +22,10 @@ public record CotizacionItemDto(
     decimal PrecioUnitario,
     int? IvaSnapshot,
     int Cantidad,
-    decimal Subtotal);
+    decimal Subtotal,
+    // Informativo, solo en la app — nunca en el PDF. Null si el ítem no trae costo base
+    // congelado (ítems marcados antes de que existiera este campo) o si ese costo es 0.
+    decimal? PorcentajeGanancia);
 
 public record ActualizarCantidadItemDto(int Cantidad);
 

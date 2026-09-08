@@ -229,6 +229,33 @@ public class CotizacionServiceTests
     }
 
     [Fact]
+    public async Task MarcarPrecioAsync_CalculaPorcentajeGananciaDesdeElCostoBaseCongelado()
+    {
+        await using var db = CrearContexto();
+        // SembrarProductoConPrecioAsync deja CostoBase = 100 siempre, Costo = costo (param).
+        var (_, _, precio) = await SembrarProductoConPrecioAsync(db, costo: 120);
+        var servicio = CrearServicio(db);
+
+        var item = await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador1");
+
+        Assert.Equal(20, item.PorcentajeGanancia); // (120-100)/100*100
+    }
+
+    [Fact]
+    public async Task ActualizarPrecioItemAsync_RecalculaPorcentajeGananciaContraElCostoBaseCongelado()
+    {
+        await using var db = CrearContexto();
+        var (_, _, precio) = await SembrarProductoConPrecioAsync(db, costo: 100); // CostoBase = 100
+        var servicio = CrearServicio(db);
+        var item = await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador1");
+        Assert.Equal(0, item.PorcentajeGanancia); // 100 vs 100, sin margen
+
+        var actualizado = await servicio.ActualizarPrecioItemAsync(item.Id, new ActualizarPrecioItemDto(80));
+
+        Assert.Equal(-20, actualizado!.PorcentajeGanancia); // (80-100)/100*100, quedó vendiendo bajo costo
+    }
+
+    [Fact]
     public async Task ActualizarPrecioItemAsync_RechazaValorNegativo()
     {
         await using var db = CrearContexto();

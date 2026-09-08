@@ -130,6 +130,7 @@ public class CotizacionService(
                 ProveedorId = precio.ProveedorId,
                 ProveedorNombreSnapshot = precio.Proveedor!.Nombre,
                 PrecioUnitario = precio.Costo,
+                CostoBaseSnapshot = precio.CostoBase,
                 IvaSnapshot = precio.Iva,
                 Cantidad = dto.Cantidad,
                 FechaMarcado = timeProvider.GetUtcNow().UtcDateTime,
@@ -373,7 +374,18 @@ public class CotizacionService(
         item.PrecioUnitario,
         item.IvaSnapshot,
         item.Cantidad,
-        item.PrecioUnitario * item.Cantidad);
+        item.PrecioUnitario * item.Cantidad,
+        CalcularPorcentajeGanancia(item.PrecioUnitario, item.CostoBaseSnapshot));
+
+    // Mismo criterio que AjustePrecio: % de ganancia = cuánto por encima del costo base quedó el
+    // precio unitario (PrecioUnitario = CostoBase * (1 + %/100) en el momento de marcar, pero
+    // PrecioUnitario se puede editar después — por eso se recalcula siempre desde los valores
+    // actuales en vez de guardar el porcentaje). Solo informativo para la app, no participa en
+    // ningún cálculo de negocio ni se muestra en el PDF.
+    private static decimal? CalcularPorcentajeGanancia(decimal precioUnitario, decimal? costoBase)
+        => costoBase is null or 0
+            ? null
+            : Math.Round((precioUnitario - costoBase.Value) / costoBase.Value * 100, 2);
 
     // El descuento (global, en pesos) se reparte proporcionalmente entre las tarifas de IVA
     // presentes en los ítems, según la participación de cada tramo en el subtotal — así, si una
