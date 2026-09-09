@@ -394,7 +394,10 @@ public class CotizacionService(
     // los ítems no comparten la misma tarifa).
     private static CotizacionDetalleDto MapDetalle(Cotizacion cotizacion)
     {
-        var items = cotizacion.Items.Select(MapItem).ToList();
+        // Orden estable (por Id de creación) — sin esto, EF/SQL Server no garantiza el orden de
+        // la colección Items entre una consulta y otra, y las filas podían "saltar" de posición
+        // en la grilla del front cada vez que se recargaba la cotización tras editar un ítem.
+        var items = cotizacion.Items.OrderBy(i => i.Id).Select(MapItem).ToList();
         var subtotalItems = items.Sum(i => i.Subtotal);
         var descuento = cotizacion.Descuento;
         var subtotalConDescuento = subtotalItems - descuento;
