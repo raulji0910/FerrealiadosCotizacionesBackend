@@ -375,6 +375,7 @@ public class CotizacionService(
         item.IvaSnapshot,
         item.Cantidad,
         item.PrecioUnitario * item.Cantidad,
+        item.CostoBaseSnapshot,
         CalcularPorcentajeGanancia(item.PrecioUnitario, item.CostoBaseSnapshot));
 
     // Mismo criterio que AjustePrecio: % de ganancia = cuánto por encima del costo base quedó el
