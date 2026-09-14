@@ -17,10 +17,11 @@ public class CotizacionesController(ICotizacionService cotizacionService) : Cont
     public async Task<ActionResult<PaginaResultado<CotizacionResumenDto>>> Buscar(
         [FromQuery] EstadoCotizacion? estado,
         [FromQuery] string? texto,
+        [FromQuery] int? precioId,
         [FromQuery] int pagina = 1,
         [FromQuery] int tamanoPagina = 10,
         CancellationToken ct = default)
-        => Ok(await cotizacionService.BuscarAsync(estado, texto, pagina, tamanoPagina, ct));
+        => Ok(await cotizacionService.BuscarAsync(estado, texto, precioId, pagina, tamanoPagina, ct));
 
     [HttpGet("{id:int}")]
     public async Task<ActionResult<CotizacionDetalleDto>> ObtenerPorId(int id, CancellationToken ct)

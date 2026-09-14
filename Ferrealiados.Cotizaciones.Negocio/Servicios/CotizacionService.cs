@@ -12,7 +12,7 @@ public class CotizacionService(
     ICotizacionPdfBuilder pdfBuilder,
     TimeProvider timeProvider) : ICotizacionService
 {
-    public async Task<PaginaResultado<CotizacionResumenDto>> BuscarAsync(EstadoCotizacion? estado, string? texto, int pagina, int tamanoPagina, CancellationToken ct = default)
+    public async Task<PaginaResultado<CotizacionResumenDto>> BuscarAsync(EstadoCotizacion? estado, string? texto, int? precioId, int pagina, int tamanoPagina, CancellationToken ct = default)
     {
         pagina = Math.Max(1, pagina);
         tamanoPagina = Math.Clamp(tamanoPagina, 1, 100);
@@ -21,6 +21,11 @@ public class CotizacionService(
 
         if (estado is not null)
             query = query.Where(c => c.Estado == estado);
+
+        // Filtro usado desde la ficha del producto ("ver cotizaciones ligadas a este precio"): solo
+        // las cotizaciones que en algún momento marcaron ese precio puntual (Producto+Proveedor).
+        if (precioId is not null)
+            query = query.Where(c => c.Items.Any(i => i.ProductoProveedorPrecioId == precioId));
 
         if (!string.IsNullOrWhiteSpace(texto))
         {

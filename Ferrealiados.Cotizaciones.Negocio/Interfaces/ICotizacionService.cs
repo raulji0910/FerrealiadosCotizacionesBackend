@@ -5,7 +5,7 @@ namespace Ferrealiados.Cotizaciones.Negocio.Interfaces;
 
 public interface ICotizacionService
 {
-    Task<PaginaResultado<CotizacionResumenDto>> BuscarAsync(EstadoCotizacion? estado, string? texto, int pagina, int tamanoPagina, CancellationToken ct = default);
+    Task<PaginaResultado<CotizacionResumenDto>> BuscarAsync(EstadoCotizacion? estado, string? texto, int? precioId, int pagina, int tamanoPagina, CancellationToken ct = default);
     Task<CotizacionDetalleDto?> ObtenerPorIdAsync(int id, CancellationToken ct = default);
     Task<CotizacionDetalleDto?> ObtenerBorradorPorCodigoAsync(string codigo, CancellationToken ct = default);
 

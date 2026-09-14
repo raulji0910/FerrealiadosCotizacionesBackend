@@ -109,6 +109,40 @@ public class CotizacionServiceTests
     }
 
     [Fact]
+    public async Task BuscarAsync_FiltraPorPrecioIdSoloLasCotizacionesQueMarcaronEsePrecio()
+    {
+        await using var db = CrearContexto();
+        var (_, _, precioUno) = await SembrarProductoConPrecioAsync(db);
+        var (_, _, precioDos) = await SembrarProductoConPrecioAsync(db);
+
+        var servicio = CrearServicio(db);
+        await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precioUno.Id, "PJ-1111", 1), "cotizador1");
+        await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precioUno.Id, "PJ-2222", 1), "cotizador1");
+        await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precioDos.Id, "PJ-3333", 1), "cotizador1");
+
+        var resultado = await servicio.BuscarAsync(estado: null, texto: null, precioId: precioUno.Id, pagina: 1, tamanoPagina: 10);
+
+        Assert.Equal(2, resultado.Total);
+        Assert.All(resultado.Items, r => Assert.Contains(r.Codigo, new[] { "PJ-1111", "PJ-2222" }));
+    }
+
+    [Fact]
+    public async Task BuscarAsync_SinPrecioIdDevuelveTodas()
+    {
+        await using var db = CrearContexto();
+        var (_, _, precioUno) = await SembrarProductoConPrecioAsync(db);
+        var (_, _, precioDos) = await SembrarProductoConPrecioAsync(db);
+
+        var servicio = CrearServicio(db);
+        await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precioUno.Id, "PJ-1111", 1), "cotizador1");
+        await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precioDos.Id, "PJ-3333", 1), "cotizador1");
+
+        var resultado = await servicio.BuscarAsync(estado: null, texto: null, precioId: null, pagina: 1, tamanoPagina: 10);
+
+        Assert.Equal(2, resultado.Total);
+    }
+
+    [Fact]
     public async Task MarcarPrecioAsync_ElSnapshotDePrecioNoCambiaSiElPrecioSeEditaDespues()
     {
         await using var db = CrearContexto();
