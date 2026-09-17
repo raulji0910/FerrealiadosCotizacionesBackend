@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Ferrealiados.Cotizaciones.Modelo;
 using Ferrealiados.Cotizaciones.Modelo.Entidades;
 using Ferrealiados.Cotizaciones.Negocio.DTOs;
@@ -6,12 +7,18 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Ferrealiados.Cotizaciones.Negocio.Servicios;
 
-public class CotizacionService(
+public partial class CotizacionService(
     AppDbContext db,
     IConsecutivoCotizacionProvider consecutivoProvider,
     ICotizacionPdfBuilder pdfBuilder,
     TimeProvider timeProvider) : ICotizacionService
 {
+    // Reconoce el consecutivo formateado ("COT-FA-00173"), con o sin el prefijo, con o sin ceros a
+    // la izquierda — para que buscar por el código que ve el cliente (el que genera el sistema al
+    // emitir) también funcione, no solo el código de trabajo temporal (Cotizacion.Codigo).
+    [GeneratedRegex(@"^(?:cot-?fa-?)?0*(\d+)$", RegexOptions.IgnoreCase)]
+    private static partial Regex RegexConsecutivoBuscado();
+
     public async Task<PaginaResultado<CotizacionResumenDto>> BuscarAsync(EstadoCotizacion? estado, string? texto, int? precioId, int pagina, int tamanoPagina, CancellationToken ct = default)
     {
         pagina = Math.Max(1, pagina);
@@ -29,10 +36,18 @@ public class CotizacionService(
 
         if (!string.IsNullOrWhiteSpace(texto))
         {
-            var patron = $"%{texto.Trim()}%";
+            var textoTrim = texto.Trim();
+            var patron = $"%{textoTrim}%";
+
+            int? consecutivoBuscado = null;
+            var matchConsecutivo = RegexConsecutivoBuscado().Match(textoTrim.Replace(" ", ""));
+            if (matchConsecutivo.Success && int.TryParse(matchConsecutivo.Groups[1].Value, out var parsed))
+                consecutivoBuscado = parsed;
+
             query = query.Where(c =>
                 EF.Functions.Like(c.Codigo, patron) ||
-                (c.ClienteNombreSnapshot != null && EF.Functions.Like(c.ClienteNombreSnapshot, patron)));
+                (c.ClienteNombreSnapshot != null && EF.Functions.Like(c.ClienteNombreSnapshot, patron)) ||
+                (consecutivoBuscado != null && c.Consecutivo == consecutivoBuscado));
         }
 
         query = query.OrderByDescending(c => c.FechaCreacion);

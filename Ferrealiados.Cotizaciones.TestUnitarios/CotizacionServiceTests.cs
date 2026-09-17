@@ -142,6 +142,59 @@ public class CotizacionServiceTests
         Assert.Equal(2, resultado.Total);
     }
 
+    [Theory]
+    [InlineData("COT-FA-00042")]
+    [InlineData("cot-fa-00042")]
+    [InlineData("COTFA00042")]
+    [InlineData("42")]
+    [InlineData("0042")]
+    public async Task BuscarAsync_EncuentraPorElConsecutivoFormateadoQueVeElCliente(string textoBuscado)
+    {
+        await using var db = CrearContexto();
+        var (_, _, precio) = await SembrarProductoConPrecioAsync(db);
+        var cliente = await SembrarClienteAsync(db);
+
+        var consecutivoMock = new Mock<IConsecutivoCotizacionProvider>();
+        consecutivoMock.Setup(p => p.ObtenerSiguienteAsync(It.IsAny<CancellationToken>())).ReturnsAsync(42);
+
+        var servicio = CrearServicio(db, consecutivoMock.Object);
+        await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador1");
+        var cotizacion = await db.Cotizaciones.SingleAsync();
+        await servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, null, null, null));
+
+        var resultado = await servicio.BuscarAsync(estado: null, texto: textoBuscado, precioId: null, pagina: 1, tamanoPagina: 10);
+
+        Assert.Equal(1, resultado.Total);
+        Assert.Equal("COT-FA-00042", resultado.Items.Single().ConsecutivoFormateado);
+    }
+
+    [Fact]
+    public async Task BuscarAsync_NoConfundeUnConsecutivoConOtroPorCerosALaIzquierda()
+    {
+        await using var db = CrearContexto();
+        var (_, _, precio) = await SembrarProductoConPrecioAsync(db);
+        var cliente = await SembrarClienteAsync(db);
+
+        var consecutivoMock = new Mock<IConsecutivoCotizacionProvider>();
+        consecutivoMock.SetupSequence(p => p.ObtenerSiguienteAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(4)
+            .ReturnsAsync(42);
+
+        var servicio = CrearServicio(db, consecutivoMock.Object);
+        await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-1111", 1), "cotizador1");
+        var cotizacionUno = await db.Cotizaciones.SingleAsync();
+        await servicio.EmitirAsync(cotizacionUno.Id, new EmitirCotizacionDto(cliente.Id, null, null, null));
+
+        await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-2222", 1), "cotizador1");
+        var cotizacionDos = await db.Cotizaciones.SingleAsync(c => c.Codigo == "PJ-2222");
+        await servicio.EmitirAsync(cotizacionDos.Id, new EmitirCotizacionDto(cliente.Id, null, null, null));
+
+        var resultado = await servicio.BuscarAsync(estado: null, texto: "COT-FA-00004", precioId: null, pagina: 1, tamanoPagina: 10);
+
+        Assert.Equal(1, resultado.Total);
+        Assert.Equal("COT-FA-00004", resultado.Items.Single().ConsecutivoFormateado);
+    }
+
     [Fact]
     public async Task MarcarPrecioAsync_ElSnapshotDePrecioNoCambiaSiElPrecioSeEditaDespues()
     {
