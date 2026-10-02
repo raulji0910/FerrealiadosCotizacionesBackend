@@ -226,6 +226,31 @@ public partial class CotizacionService(
         return MapItem(item);
     }
 
+    // Camino inverso: se escribe el % de ganancia deseado y se recalcula PrecioUnitario desde ahí,
+    // con la misma fórmula (invertida) que usa CalcularPorcentajeGanancia más abajo. Exige que el
+    // ítem tenga CostoBaseSnapshot — sin costo base no hay desde dónde calcular el precio.
+    public async Task<CotizacionItemDto?> ActualizarPorcentajeGananciaItemAsync(int itemId, ActualizarPorcentajeGananciaItemDto dto, CancellationToken ct = default)
+    {
+        var item = await db.CotizacionItems.Include(i => i.Cotizacion).FirstOrDefaultAsync(i => i.Id == itemId, ct);
+        if (item is null)
+            return null;
+
+        if (item.Cotizacion!.Estado != EstadoCotizacion.Borrador)
+            throw new InvalidOperationException("No se puede modificar una cotización ya emitida.");
+
+        if (item.CostoBaseSnapshot is null or 0)
+            throw new InvalidOperationException("Este ítem no tiene costo base registrado, así que no se puede ajustar por % de ganancia. Edita el precio unitario directamente.");
+
+        var precioCalculado = Math.Round(item.CostoBaseSnapshot.Value * (1 + dto.PorcentajeGanancia / 100m), 2, MidpointRounding.AwayFromZero);
+        if (precioCalculado < 0)
+            throw new InvalidOperationException("Ese % de ganancia deja el precio unitario en negativo.");
+
+        item.PrecioUnitario = precioCalculado;
+        await db.SaveChangesAsync(ct);
+
+        return MapItem(item);
+    }
+
     // Igual que ActualizarPrecioItemAsync, pero para la tarifa de IVA informativa del ítem.
     public async Task<CotizacionItemDto?> ActualizarIvaItemAsync(int itemId, ActualizarIvaItemDto dto, CancellationToken ct = default)
     {

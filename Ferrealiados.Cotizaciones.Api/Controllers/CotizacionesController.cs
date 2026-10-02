@@ -93,6 +93,20 @@ public class CotizacionesController(ICotizacionService cotizacionService) : Cont
         }
     }
 
+    [HttpPut("items/{itemId:int}/porcentaje-ganancia")]
+    public async Task<ActionResult<CotizacionItemDto>> ActualizarPorcentajeGanancia(int itemId, ActualizarPorcentajeGananciaItemDto dto, CancellationToken ct)
+    {
+        try
+        {
+            var item = await cotizacionService.ActualizarPorcentajeGananciaItemAsync(itemId, dto, ct);
+            return item is null ? NotFound() : Ok(item);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { mensaje = ex.Message });
+        }
+    }
+
     [HttpPut("items/{itemId:int}/iva")]
     public async Task<ActionResult<CotizacionItemDto>> ActualizarIva(int itemId, ActualizarIvaItemDto dto, CancellationToken ct)
     {

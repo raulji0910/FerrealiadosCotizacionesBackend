@@ -13,6 +13,7 @@ public interface ICotizacionService
     Task<bool> QuitarItemAsync(int itemId, CancellationToken ct = default);
     Task<CotizacionItemDto?> ActualizarCantidadItemAsync(int itemId, ActualizarCantidadItemDto dto, CancellationToken ct = default);
     Task<CotizacionItemDto?> ActualizarPrecioItemAsync(int itemId, ActualizarPrecioItemDto dto, CancellationToken ct = default);
+    Task<CotizacionItemDto?> ActualizarPorcentajeGananciaItemAsync(int itemId, ActualizarPorcentajeGananciaItemDto dto, CancellationToken ct = default);
     Task<CotizacionItemDto?> ActualizarIvaItemAsync(int itemId, ActualizarIvaItemDto dto, CancellationToken ct = default);
 
     Task<CotizacionDetalleDto?> EmitirAsync(int id, EmitirCotizacionDto dto, CancellationToken ct = default);

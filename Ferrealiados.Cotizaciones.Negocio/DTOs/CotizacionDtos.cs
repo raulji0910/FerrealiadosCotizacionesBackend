@@ -34,6 +34,11 @@ public record ActualizarCantidadItemDto(int Cantidad);
 // el ProductoProveedorPrecio del catálogo (el ítem ya es un snapshot independiente).
 public record ActualizarPrecioItemDto(decimal PrecioUnitario);
 
+// Camino inverso a ActualizarPrecioItemDto: en vez de escribir el precio directo, se escribe el %
+// de ganancia deseado y el servicio recalcula PrecioUnitario a partir de CostoBaseSnapshot. Los
+// dos caminos conviven — cualquiera que se use, el otro valor se recalcula desde ahí al recargar.
+public record ActualizarPorcentajeGananciaItemDto(decimal PorcentajeGanancia);
+
 public record ActualizarIvaItemDto(int? Iva);
 
 public record CotizacionResumenDto(

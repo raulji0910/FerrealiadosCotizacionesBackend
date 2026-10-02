@@ -343,6 +343,81 @@ public class CotizacionServiceTests
     }
 
     [Fact]
+    public async Task ActualizarPorcentajeGananciaItemAsync_RecalculaPrecioUnitarioDesdeElPorcentaje()
+    {
+        await using var db = CrearContexto();
+        var (_, _, precio) = await SembrarProductoConPrecioAsync(db, costo: 100); // CostoBase = 100
+        var servicio = CrearServicio(db);
+        var item = await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador1");
+
+        var actualizado = await servicio.ActualizarPorcentajeGananciaItemAsync(item.Id, new ActualizarPorcentajeGananciaItemDto(25));
+
+        Assert.NotNull(actualizado);
+        Assert.Equal(125, actualizado!.PrecioUnitario); // 100 * 1.25
+        Assert.Equal(25, actualizado.PorcentajeGanancia); // recalculado desde el nuevo precio, coincide
+    }
+
+    [Fact]
+    public async Task ActualizarPorcentajeGananciaItemAsync_PermitePorcentajeNegativo()
+    {
+        await using var db = CrearContexto();
+        var (_, _, precio) = await SembrarProductoConPrecioAsync(db, costo: 100);
+        var servicio = CrearServicio(db);
+        var item = await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador1");
+
+        var actualizado = await servicio.ActualizarPorcentajeGananciaItemAsync(item.Id, new ActualizarPorcentajeGananciaItemDto(-20));
+
+        Assert.Equal(80, actualizado!.PrecioUnitario); // 100 * 0.80
+        Assert.Equal(-20, actualizado.PorcentajeGanancia);
+    }
+
+    [Fact]
+    public async Task ActualizarPorcentajeGananciaItemAsync_RechazaSiNoHayCostoBaseCongelado()
+    {
+        await using var db = CrearContexto();
+        var (_, _, precio) = await SembrarProductoConPrecioAsync(db);
+        var servicio = CrearServicio(db);
+        var item = await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador1");
+
+        var entidad = await db.CotizacionItems.FindAsync(item.Id);
+        entidad!.CostoBaseSnapshot = null; // simula un ítem histórico marcado antes de que existiera el campo
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            servicio.ActualizarPorcentajeGananciaItemAsync(item.Id, new ActualizarPorcentajeGananciaItemDto(25)));
+    }
+
+    [Fact]
+    public async Task ActualizarPorcentajeGananciaItemAsync_RechazaSiElPorcentajeDejaElPrecioNegativo()
+    {
+        await using var db = CrearContexto();
+        var (_, _, precio) = await SembrarProductoConPrecioAsync(db, costo: 100);
+        var servicio = CrearServicio(db);
+        var item = await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador1");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            servicio.ActualizarPorcentajeGananciaItemAsync(item.Id, new ActualizarPorcentajeGananciaItemDto(-150)));
+    }
+
+    [Fact]
+    public async Task ActualizarPorcentajeGananciaItemAsync_RechazaSiLaCotizacionYaFueEmitida()
+    {
+        await using var db = CrearContexto();
+        var (_, _, precio) = await SembrarProductoConPrecioAsync(db, costo: 100);
+        var cliente = await SembrarClienteAsync(db);
+        var consecutivoMock = new Mock<IConsecutivoCotizacionProvider>();
+        consecutivoMock.Setup(p => p.ObtenerSiguienteAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+        var servicio = CrearServicio(db, consecutivoMock.Object);
+        var item = await servicio.MarcarPrecioAsync(new MarcarPrecioDto(precio.Id, "PJ-5087", 1), "cotizador1");
+        var cotizacion = await db.Cotizaciones.SingleAsync();
+        await servicio.EmitirAsync(cotizacion.Id, new EmitirCotizacionDto(cliente.Id, null, null, null));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            servicio.ActualizarPorcentajeGananciaItemAsync(item.Id, new ActualizarPorcentajeGananciaItemDto(25)));
+    }
+
+    [Fact]
     public async Task ActualizarPrecioItemAsync_RechazaValorNegativo()
     {
         await using var db = CrearContexto();
