@@ -13,6 +13,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Cliente> Clientes => Set<Cliente>();
     public DbSet<Cotizacion> Cotizaciones => Set<Cotizacion>();
     public DbSet<CotizacionItem> CotizacionItems => Set<CotizacionItem>();
+    public DbSet<FacturaProveedor> FacturasProveedor => Set<FacturaProveedor>();
+    public DbSet<FacturaProveedorRenglon> FacturaProveedorRenglones => Set<FacturaProveedorRenglon>();
+    public DbSet<OrdenCompraWorldOffice> OrdenesCompraWorldOffice => Set<OrdenCompraWorldOffice>();
+    public DbSet<OrdenCompraWorldOfficeRenglon> OrdenCompraWorldOfficeRenglones => Set<OrdenCompraWorldOfficeRenglon>();
 
     // Consumida vía "SELECT NEXT VALUE FOR dbo.SecuenciaConsecutivoCotizacion" (IConsecutivoCotizacionProvider)
     // para asignar el número oficial de una cotización solo al emitirla. Atómica ante concurrencia,
@@ -98,6 +102,36 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .OnDelete(DeleteBehavior.Cascade);
 
             e.HasIndex(i => i.ProductoProveedorPrecioId);
+        });
+
+        modelBuilder.Entity<FacturaProveedor>(e =>
+        {
+            e.HasIndex(f => f.Cufe).IsUnique();
+            e.HasIndex(f => f.FechaEmision);
+            e.HasIndex(f => f.NitEmisor);
+        });
+
+        modelBuilder.Entity<FacturaProveedorRenglon>(e =>
+        {
+            e.HasOne(r => r.FacturaProveedor)
+                .WithMany(f => f.Renglones)
+                .HasForeignKey(r => r.FacturaProveedorId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<OrdenCompraWorldOffice>(e =>
+        {
+            e.HasIndex(o => o.IdAsientoContable).IsUnique();
+            e.HasIndex(o => o.Fecha);
+            e.HasIndex(o => o.NitProveedor);
+        });
+
+        modelBuilder.Entity<OrdenCompraWorldOfficeRenglon>(e =>
+        {
+            e.HasOne(r => r.OrdenCompraWorldOffice)
+                .WithMany(o => o.Renglones)
+                .HasForeignKey(r => r.OrdenCompraWorldOfficeId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.HasSequence<int>(SecuenciaConsecutivoCotizacion, schema: "dbo")

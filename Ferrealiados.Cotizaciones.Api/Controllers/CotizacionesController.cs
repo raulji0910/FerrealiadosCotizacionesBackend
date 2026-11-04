@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Ferrealiados.Cotizaciones.Api.Controllers;
 
 [ApiController]
-[Authorize]
+[Authorize(Roles = "Admin,Cotizador")]
 [Route("api/cotizaciones")]
 public class CotizacionesController(ICotizacionService cotizacionService) : ControllerBase
 {

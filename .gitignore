@@ -13,3 +13,7 @@ obj/
 # OS
 Thumbs.db
 .DS_Store
+
+# Sincronizador: credenciales reales y estado local
+appsettings.Local.json
+marca-correo.json

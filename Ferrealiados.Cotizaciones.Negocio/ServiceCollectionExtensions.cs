@@ -20,6 +20,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IConsecutivoCotizacionProvider, ConsecutivoCotizacionProvider>();
         services.AddScoped<ICotizacionPdfBuilder, Documentos.CotizacionPdfBuilder>();
         services.AddScoped<ICotizacionService, CotizacionService>();
+        services.AddScoped<IConciliacionService, ConciliacionService>();
         return services;
     }
 }

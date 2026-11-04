@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Ferrealiados.Cotizaciones.Api.Controllers;
 
 [ApiController]
-[Authorize]
+[Authorize(Roles = "Admin,Cotizador")]
 [Route("api/alertas")]
 public class AlertasController(IPrecioService precioService) : ControllerBase
 {

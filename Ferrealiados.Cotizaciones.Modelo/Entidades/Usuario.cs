@@ -5,7 +5,9 @@ namespace Ferrealiados.Cotizaciones.Modelo.Entidades;
 public enum RolUsuario
 {
     Admin = 1,
-    Cotizador = 2
+    Cotizador = 2,
+    // Solo entra al módulo de conciliación de facturas de proveedor.
+    Conciliador = 3
 }
 
 public class Usuario

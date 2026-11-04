@@ -263,6 +263,215 @@ namespace Ferrealiados.Cotizaciones.Modelo.Migraciones
                     b.ToTable("CotizacionItems");
                 });
 
+            modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.FacturaProveedor", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CorreoAsunto")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("CorreoFecha")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Cufe")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateOnly>("FechaEmision")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime>("FechaRegistro")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("Iva")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("NitEmisor")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("NitReceptor")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("NombreArchivo")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("NombreEmisor")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("Numero")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("ReferenciaOrden")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<decimal>("Subtotal")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("TipoDocumento")
+                        .IsRequired()
+                        .HasMaxLength(5)
+                        .HasColumnType("nvarchar(5)");
+
+                    b.Property<decimal>("Total")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Xml")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Cufe")
+                        .IsUnique();
+
+                    b.HasIndex("FechaEmision");
+
+                    b.HasIndex("NitEmisor");
+
+                    b.ToTable("FacturasProveedor");
+                });
+
+            modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.FacturaProveedorRenglon", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Cantidad")
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<string>("Descripcion")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<int>("FacturaProveedorId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Orden")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("PorcentajeIva")
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<decimal>("Subtotal")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FacturaProveedorId");
+
+                    b.ToTable("FacturaProveedorRenglones");
+                });
+
+            modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.OrdenCompraWorldOffice", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Anulada")
+                        .HasColumnType("bit");
+
+                    b.Property<DateOnly>("Fecha")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime>("FechaSincronizacion")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("IdAsientoContable")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("Iva")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("NitProveedor")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("NombreProveedor")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<int>("Numero")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("Subtotal")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Fecha");
+
+                    b.HasIndex("IdAsientoContable")
+                        .IsUnique();
+
+                    b.HasIndex("NitProveedor");
+
+                    b.ToTable("OrdenesCompraWorldOffice");
+                });
+
+            modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.OrdenCompraWorldOfficeRenglon", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Cantidad")
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<string>("Codigo")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Descripcion")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<int>("Orden")
+                        .HasColumnType("int");
+
+                    b.Property<int>("OrdenCompraWorldOfficeId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("PorcentajeIva")
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<decimal>("ValorUnitario")
+                        .HasColumnType("decimal(18,4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrdenCompraWorldOfficeId");
+
+                    b.ToTable("OrdenCompraWorldOfficeRenglones");
+                });
+
             modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.Producto", b =>
                 {
                     b.Property<int>("Id")
@@ -453,6 +662,28 @@ namespace Ferrealiados.Cotizaciones.Modelo.Migraciones
                     b.Navigation("Cotizacion");
                 });
 
+            modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.FacturaProveedorRenglon", b =>
+                {
+                    b.HasOne("Ferrealiados.Cotizaciones.Modelo.Entidades.FacturaProveedor", "FacturaProveedor")
+                        .WithMany("Renglones")
+                        .HasForeignKey("FacturaProveedorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("FacturaProveedor");
+                });
+
+            modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.OrdenCompraWorldOfficeRenglon", b =>
+                {
+                    b.HasOne("Ferrealiados.Cotizaciones.Modelo.Entidades.OrdenCompraWorldOffice", "OrdenCompraWorldOffice")
+                        .WithMany("Renglones")
+                        .HasForeignKey("OrdenCompraWorldOfficeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("OrdenCompraWorldOffice");
+                });
+
             modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.ProductoProveedorPrecio", b =>
                 {
                     b.HasOne("Ferrealiados.Cotizaciones.Modelo.Entidades.Producto", "Producto")
@@ -480,6 +711,16 @@ namespace Ferrealiados.Cotizaciones.Modelo.Migraciones
             modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.Cotizacion", b =>
                 {
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.FacturaProveedor", b =>
+                {
+                    b.Navigation("Renglones");
+                });
+
+            modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.OrdenCompraWorldOffice", b =>
+                {
+                    b.Navigation("Renglones");
                 });
 
             modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.Producto", b =>
