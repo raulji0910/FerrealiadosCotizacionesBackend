@@ -128,6 +128,44 @@ public class ConciliacionServiceTests
         Assert.Equal(1101, Assert.Single(conciliacion.OrdenesPendientes).Numero);
     }
 
+    private static FacturaCompraEntradaDto Fc(int idAsiento, int numero, string? referencia, string nit = "890.900.652",
+        DateOnly? fecha = null)
+        => new(idAsiento, numero, fecha ?? new DateOnly(2026, 10, 22), nit, "INVESA S.A", "FE999", referencia, false);
+
+    [Fact]
+    public async Task SincronizarFacturasCompra_ReemplazaLaVentanaYBorraLasQueYaNoVienen()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        var desde = new DateOnly(2026, 6, 1);
+        await servicio.SincronizarFacturasCompraAsync(new(desde, [Fc(1, 10, "1332"), Fc(2, 11, "1333")]));
+
+        var resultado = await servicio.SincronizarFacturasCompraAsync(new(desde, [Fc(1, 10, "1332-1334")]));
+
+        Assert.Equal(new SincronizacionFacturasCompraResultadoDto(0, 1, 1), resultado);
+        var fc = Assert.Single(await db.FacturasCompraWorldOffice.ToListAsync());
+        Assert.Equal("1332-1334", fc.ReferenciaOrdenes);
+        Assert.Equal("890900652", fc.NitProveedor);
+    }
+
+    [Fact]
+    public async Task Conciliar_OcCitadaEnFcSinXml_VaAFacturadasSinXmlYNoAPendientes()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        await servicio.SincronizarOrdenesAsync([Oc(7001, 1332, 10m, 7500m), Oc(7002, 1333, 1m, 5000m)]);
+        await servicio.SincronizarFacturasCompraAsync(new(new DateOnly(2026, 6, 1), [Fc(1, 1069, "1332-1120")]));
+
+        var conciliacion = await servicio.ConciliarAsync(new DateOnly(2026, 10, 1), Hoy);
+
+        var facturada = Assert.Single(conciliacion.OrdenesFacturadasSinXml);
+        Assert.Equal((1332, 1069), (facturada.Numero, facturada.FacturaCompraNumero));
+        Assert.Equal(1333, Assert.Single(conciliacion.OrdenesPendientes).Numero);
+        Assert.Equal(1120, Assert.Single(conciliacion.ReferenciasInvalidas).OrdenCitada);
+        Assert.Equal((1, 1, 1), (conciliacion.Resumen.OrdenesPendientes, conciliacion.Resumen.OrdenesFacturadasSinXml,
+            conciliacion.Resumen.ReferenciasInvalidas));
+    }
+
     [Fact]
     public async Task ObtenerDetalle_TraeRenglonesDeFacturaYOc()
     {

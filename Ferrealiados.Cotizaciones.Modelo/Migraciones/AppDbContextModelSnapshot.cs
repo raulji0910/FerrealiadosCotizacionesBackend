@@ -263,6 +263,59 @@ namespace Ferrealiados.Cotizaciones.Modelo.Migraciones
                     b.ToTable("CotizacionItems");
                 });
 
+            modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.FacturaCompraWorldOffice", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Anulada")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("DocumentoExterno")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateOnly>("Fecha")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime>("FechaSincronizacion")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("IdAsientoContable")
+                        .HasColumnType("int");
+
+                    b.Property<string>("NitProveedor")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("NombreProveedor")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<int>("Numero")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ReferenciaOrdenes")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Fecha");
+
+                    b.HasIndex("IdAsientoContable")
+                        .IsUnique();
+
+                    b.HasIndex("NitProveedor");
+
+                    b.ToTable("FacturasCompraWorldOffice");
+                });
+
             modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.FacturaProveedor", b =>
                 {
                     b.Property<int>("Id")

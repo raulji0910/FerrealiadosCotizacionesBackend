@@ -23,6 +23,22 @@ public record OrdenCompraEntradaDto(
 
 public record SincronizacionOrdenesResultadoDto(int Nuevas, int Actualizadas);
 
+// Encabezado de una FC de World Office. Desde: la ventana que leyó el Sincronizador; la API borra
+// las FC de esa ventana que ya no vinieron (anuladas a mano, borradas).
+public record FacturaCompraEntradaDto(
+    int IdAsientoContable,
+    int Numero,
+    DateOnly Fecha,
+    string NitProveedor,
+    string NombreProveedor,
+    string? DocumentoExterno,
+    string? ReferenciaOrdenes,
+    bool Anulada);
+
+public record SincronizacionFacturasCompraEntradaDto(DateOnly Desde, IReadOnlyList<FacturaCompraEntradaDto> Facturas);
+
+public record SincronizacionFacturasCompraResultadoDto(int Nuevas, int Actualizadas, int Eliminadas);
+
 // ---- Lo que consulta la pantalla de conciliación ----
 
 public record FacturaConciliadaDto(
@@ -42,11 +58,43 @@ public record FacturaConciliadaDto(
     decimal? OrdenCompraIva,
     decimal? DiferenciaSubtotal,
     decimal? DiferenciaIva,
-    string Detalle);
+    string Detalle,
+    // Todas las OC del cruce (más de una solo cuando salió de una FC de WO que cita varias) y la FC
+    // de WO de donde salió el cruce, si fue por esa vía. OrdenCompraSubtotal/Iva suman todas.
+    IReadOnlyList<int> OrdenesCompra,
+    int? FacturaCompraNumero);
 
 public record OrdenPendienteDto(int Numero, DateOnly Fecha, string NitProveedor, string NombreProveedor, decimal Subtotal, decimal Iva, decimal SaldoSubtotal);
 
-public record ResumenConciliacionDto(int Cuadran, int ConDiferencia, int Parciales, int SinOrdenCompra, int OrdenesPendientes);
+public record OrdenFacturadaSinXmlDto(
+    int Numero,
+    DateOnly Fecha,
+    string NitProveedor,
+    string NombreProveedor,
+    decimal Subtotal,
+    decimal Iva,
+    int FacturaCompraNumero,
+    DateOnly FacturaCompraFecha,
+    string? DocumentoExterno);
+
+public record ReferenciaOrdenInvalidaDto(
+    int FacturaCompraNumero,
+    DateOnly Fecha,
+    string NitProveedor,
+    string NombreProveedor,
+    string? DocumentoExterno,
+    string? ReferenciaOrdenes,
+    int OrdenCitada,
+    string Motivo);
+
+public record ResumenConciliacionDto(
+    int Cuadran,
+    int ConDiferencia,
+    int Parciales,
+    int SinOrdenCompra,
+    int OrdenesPendientes,
+    int OrdenesFacturadasSinXml,
+    int ReferenciasInvalidas);
 
 public record ConciliacionDto(
     DateOnly Desde,
@@ -54,6 +102,8 @@ public record ConciliacionDto(
     ResumenConciliacionDto Resumen,
     IReadOnlyList<FacturaConciliadaDto> Facturas,
     IReadOnlyList<OrdenPendienteDto> OrdenesPendientes,
+    IReadOnlyList<OrdenFacturadaSinXmlDto> OrdenesFacturadasSinXml,
+    IReadOnlyList<ReferenciaOrdenInvalidaDto> ReferenciasInvalidas,
     DateTime? UltimaSincronizacionOrdenes,
     DateTime? UltimaFacturaRecibida);
 

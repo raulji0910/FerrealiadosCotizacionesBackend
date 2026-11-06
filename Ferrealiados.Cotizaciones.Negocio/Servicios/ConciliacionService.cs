@@ -137,6 +137,52 @@ public class ConciliacionService(AppDbContext db, TimeProvider reloj) : IConcili
         return new SincronizacionOrdenesResultadoDto(nuevas, actualizadas);
     }
 
+    public async Task<SincronizacionFacturasCompraResultadoDto> SincronizarFacturasCompraAsync(
+        SincronizacionFacturasCompraEntradaDto entrada, CancellationToken ct = default)
+    {
+        var existentes = await db.FacturasCompraWorldOffice
+            .Where(f => f.Fecha >= entrada.Desde)
+            .ToDictionaryAsync(f => f.IdAsientoContable, ct);
+        var ids = entrada.Facturas.Select(f => f.IdAsientoContable).ToHashSet();
+        var fueraDeVentana = await db.FacturasCompraWorldOffice
+            .Where(f => f.Fecha < entrada.Desde && ids.Contains(f.IdAsientoContable))
+            .ToListAsync(ct);
+        foreach (var f in fueraDeVentana) existentes[f.IdAsientoContable] = f;
+
+        var ahora = reloj.GetUtcNow().UtcDateTime;
+        int nuevas = 0, actualizadas = 0;
+        foreach (var e in entrada.Facturas)
+        {
+            if (!existentes.TryGetValue(e.IdAsientoContable, out var fc))
+            {
+                fc = new FacturaCompraWorldOffice { IdAsientoContable = e.IdAsientoContable, NitProveedor = "", NombreProveedor = "" };
+                db.FacturasCompraWorldOffice.Add(fc);
+                existentes[e.IdAsientoContable] = fc;
+                nuevas++;
+            }
+            else
+            {
+                actualizadas++;
+            }
+
+            fc.Numero = e.Numero;
+            fc.Fecha = e.Fecha;
+            fc.NitProveedor = Truncar(LectorFacturaElectronica.NormalizarNit(e.NitProveedor), 20);
+            fc.NombreProveedor = Truncar(e.NombreProveedor, 300);
+            fc.DocumentoExterno = string.IsNullOrWhiteSpace(e.DocumentoExterno) ? null : Truncar(e.DocumentoExterno.Trim(), 100);
+            fc.ReferenciaOrdenes = string.IsNullOrWhiteSpace(e.ReferenciaOrdenes) ? null : Truncar(e.ReferenciaOrdenes.Trim(), 200);
+            fc.Anulada = e.Anulada;
+            fc.FechaSincronizacion = ahora;
+        }
+
+        // Las de la ventana que ya no vinieron se borraron en WO.
+        var borradas = existentes.Values.Where(f => f.Fecha >= entrada.Desde && !ids.Contains(f.IdAsientoContable)).ToList();
+        db.FacturasCompraWorldOffice.RemoveRange(borradas);
+
+        await db.SaveChangesAsync(ct);
+        return new SincronizacionFacturasCompraResultadoDto(nuevas, actualizadas, borradas.Count);
+    }
+
     public async Task<ConciliacionDto> ConciliarAsync(DateOnly desde, DateOnly hasta, CancellationToken ct = default)
     {
         var (resultado, facturasPorCufe) = await CalcularAsync(desde, hasta, ct);
@@ -156,17 +202,35 @@ public class ConciliacionService(AppDbContext db, TimeProvider reloj) : IConcili
             .OrderByDescending(p => p.Fecha)
             .ToList();
 
+        var facturadasSinXml = resultado.OrdenesFacturadasSinXml
+            .Where(p => p.OrdenCompra.Fecha >= desde && p.OrdenCompra.Fecha <= hasta)
+            .Select(p => new OrdenFacturadaSinXmlDto(p.OrdenCompra.Numero, p.OrdenCompra.Fecha, p.OrdenCompra.NitProveedor,
+                p.OrdenCompra.NombreProveedor, p.OrdenCompra.Subtotal, p.OrdenCompra.Iva,
+                p.FacturaCompra.Numero, p.FacturaCompra.Fecha, p.FacturaCompra.DocumentoExterno))
+            .OrderByDescending(p => p.Fecha)
+            .ToList();
+
+        var invalidas = resultado.ReferenciasInvalidas
+            .Where(r => r.FacturaCompra.Fecha >= desde && r.FacturaCompra.Fecha <= hasta)
+            .Select(r => new ReferenciaOrdenInvalidaDto(r.FacturaCompra.Numero, r.FacturaCompra.Fecha, r.FacturaCompra.NitProveedor,
+                r.FacturaCompra.NombreProveedor, r.FacturaCompra.DocumentoExterno, r.FacturaCompra.ReferenciaOrdenes,
+                r.NumeroOrdenCitada, r.Motivo))
+            .OrderByDescending(r => r.Fecha).ThenBy(r => r.FacturaCompraNumero)
+            .ToList();
+
         var resumen = new ResumenConciliacionDto(
             facturas.Count(f => f.Estado == EstadoConciliacion.Cuadra),
             facturas.Count(f => f.Estado == EstadoConciliacion.Diferencia),
             facturas.Count(f => f.Estado == EstadoConciliacion.Parcial),
             facturas.Count(f => f.Estado == EstadoConciliacion.SinOrdenCompra),
-            pendientes.Count);
+            pendientes.Count,
+            facturadasSinXml.Count,
+            invalidas.Count);
 
         var ultimaSincronizacion = await db.OrdenesCompraWorldOffice.MaxAsync(o => (DateTime?)o.FechaSincronizacion, ct);
         var ultimaFactura = await db.FacturasProveedor.MaxAsync(f => (DateTime?)f.FechaRegistro, ct);
 
-        return new ConciliacionDto(desde, hasta, resumen, facturas, pendientes, ultimaSincronizacion, ultimaFactura);
+        return new ConciliacionDto(desde, hasta, resumen, facturas, pendientes, facturadasSinXml, invalidas, ultimaSincronizacion, ultimaFactura);
     }
 
     public async Task<DetalleFacturaConciliadaDto?> ObtenerDetalleAsync(int facturaId, CancellationToken ct = default)
@@ -182,12 +246,14 @@ public class ConciliacionService(AppDbContext db, TimeProvider reloj) : IConcili
         var conciliada = resultado.Facturas.FirstOrDefault(r => r.Factura.Cufe == factura.Cufe);
         if (conciliada is null) return null;
 
+        // Si el cruce salió de una FC de WO con varias OC, se muestran los renglones de todas.
+        var idsOc = conciliada.TodasLasOrdenes.Select(o => o.IdAsientoContable).ToList();
         var renglonesOc = new List<RenglonComparacionDto>();
-        if (conciliada.OrdenCompra is not null)
+        if (idsOc.Count > 0)
         {
             renglonesOc = await db.OrdenCompraWorldOfficeRenglones.AsNoTracking()
-                .Where(r => r.OrdenCompraWorldOffice!.IdAsientoContable == conciliada.OrdenCompra.IdAsientoContable)
-                .OrderBy(r => r.Orden)
+                .Where(r => idsOc.Contains(r.OrdenCompraWorldOffice!.IdAsientoContable))
+                .OrderBy(r => r.OrdenCompraWorldOffice!.Numero).ThenBy(r => r.Orden)
                 .Select(r => new RenglonComparacionDto(r.Codigo, r.Descripcion, r.Cantidad, r.ValorUnitario,
                     Math.Round(r.Cantidad * r.ValorUnitario, 2), r.PorcentajeIva))
                 .ToListAsync(ct);
@@ -218,10 +284,21 @@ public class ConciliacionService(AppDbContext db, TimeProvider reloj) : IConcili
             })
             .ToListAsync(ct);
 
+        // FC de WO (último recurso del cruce). Hasta 60 días después del rango: Contabilidad puede
+        // registrar en noviembre la factura de una OC de octubre.
+        var facturasCompra = await db.FacturasCompraWorldOffice.AsNoTracking()
+            .Where(f => !f.Anulada && f.Fecha >= desdeContexto && f.Fecha <= hasta.AddDays(60) && f.ReferenciaOrdenes != null)
+            .Select(f => new FacturaCompraConciliable(f.IdAsientoContable, f.Numero, f.Fecha, f.NitProveedor,
+                f.NombreProveedor, f.DocumentoExterno, f.ReferenciaOrdenes))
+            .ToListAsync(ct);
+        var citadas = facturasCompra.SelectMany(f => f.OrdenesCitadas).Distinct().ToList();
+
         var ordenes = await db.OrdenesCompraWorldOffice.AsNoTracking()
             .Where(o => !o.Anulada
-                        && o.Fecha >= desdeContexto.AddDays(-Reglas.DiasAntes)
-                        && o.Fecha <= hasta.AddDays(Reglas.DiasDespues))
+                        && ((o.Fecha >= desdeContexto.AddDays(-Reglas.DiasAntes) && o.Fecha <= hasta.AddDays(Reglas.DiasDespues))
+                            // Las OC citadas en una FC entran aunque estén fuera de la ventana de fechas,
+                            // para poder validar de qué proveedor son.
+                            || citadas.Contains(o.Numero)))
             .Select(o => new OrdenCompraConciliable(o.IdAsientoContable, o.Numero, o.Fecha, o.NitProveedor,
                 o.NombreProveedor, o.Subtotal, o.Iva))
             .ToListAsync(ct);
@@ -229,14 +306,21 @@ public class ConciliacionService(AppDbContext db, TimeProvider reloj) : IConcili
         var electronicas = facturas.Select(f => new FacturaElectronica(f.Cufe, f.Numero, f.TipoDocumento, f.FechaEmision,
             f.NitEmisor, f.NombreEmisor, f.NitReceptor, f.Subtotal, f.Iva, f.Total, f.ReferenciaOrden, []));
 
-        return (MotorConciliacion.Conciliar(electronicas, ordenes, Reglas), facturas.ToDictionary(f => f.Cufe, f => f.Id));
+        return (MotorConciliacion.Conciliar(electronicas, ordenes, Reglas, facturasCompra), facturas.ToDictionary(f => f.Cufe, f => f.Id));
     }
 
     private static FacturaConciliadaDto MapFactura(ResultadoFactura r, int facturaId)
-        => new(facturaId, r.Factura.Numero, r.Factura.FechaEmision, r.Factura.NitEmisor, r.Factura.NombreEmisor,
+    {
+        var ordenes = r.TodasLasOrdenes.ToList();
+        return new(facturaId, r.Factura.Numero, r.Factura.FechaEmision, r.Factura.NitEmisor, r.Factura.NombreEmisor,
             r.Factura.Subtotal, r.Factura.Iva, r.Factura.Total, r.Factura.ReferenciaOrden, r.Estado,
-            r.OrdenCompra?.Numero, r.OrdenCompra?.Fecha, r.OrdenCompra?.Subtotal, r.OrdenCompra?.Iva,
-            r.DiferenciaSubtotal, r.DiferenciaIva, r.Detalle);
+            r.OrdenCompra?.Numero, r.OrdenCompra?.Fecha,
+            ordenes.Count == 0 ? null : ordenes.Sum(o => o.Subtotal),
+            ordenes.Count == 0 ? null : ordenes.Sum(o => o.Iva),
+            r.DiferenciaSubtotal, r.DiferenciaIva, r.Detalle,
+            ordenes.Select(o => o.Numero).ToList(),
+            r.FacturaCompra?.Numero);
+    }
 
     private static string Truncar(string valor, int maximo) => valor.Length <= maximo ? valor : valor[..maximo];
 }

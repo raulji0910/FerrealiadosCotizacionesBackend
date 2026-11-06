@@ -93,6 +93,26 @@ catch (Exception ex)
     Console.WriteLine($"[{DateTime.Now:s}] ERROR sincronizando OC: {ex.Message}");
 }
 
+// ---- Fase 1b: FC de World Office (la OC que escribe Contabilidad en Personalizado1) ----
+// Último recurso del cruce. Igual que las OC: ventana completa en cada corrida, la API reemplaza.
+try
+{
+    var prefijo = config["WorldOffice:PrefijoFacturaCompra"] ?? "FC";
+    var diasAtras = int.TryParse(config["WorldOffice:DiasOrdenesCompra"], out var d) ? d : 150;
+    var desde = DateOnly.FromDateTime(DateTime.Today).AddDays(-diasAtras);
+
+    var lector = new WorldOfficeReader(Requerido("WorldOffice:ConnectionString"));
+    var facturasCompra = await lector.ObtenerFacturasCompraAsync(prefijo, desde);
+    var r = await api.SincronizarFacturasCompraAsync(new SincronizacionFacturasCompraEntradaDto(desde, facturasCompra));
+    Console.WriteLine($"[{DateTime.Now:s}] {facturasCompra.Count} FC leídas ({facturasCompra.Count(f => !string.IsNullOrWhiteSpace(f.ReferenciaOrdenes))} con OC): " +
+                      $"{r.Nuevas} nuevas, {r.Actualizadas} actualizadas, {r.Eliminadas} eliminadas.");
+}
+catch (Exception ex)
+{
+    huboError = true;
+    Console.WriteLine($"[{DateTime.Now:s}] ERROR sincronizando FC: {ex.Message}");
+}
+
 // ---- Fase 2: facturas electrónicas del correo de facturación ----
 // Se avanza la marca correo por correo, solo después de que la API confirmó: si algo falla a
 // mitad, la próxima corrida retoma desde el último correo confirmado (y la API deduplica por CUFE).

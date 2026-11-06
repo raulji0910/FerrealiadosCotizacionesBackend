@@ -17,6 +17,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<FacturaProveedorRenglon> FacturaProveedorRenglones => Set<FacturaProveedorRenglon>();
     public DbSet<OrdenCompraWorldOffice> OrdenesCompraWorldOffice => Set<OrdenCompraWorldOffice>();
     public DbSet<OrdenCompraWorldOfficeRenglon> OrdenCompraWorldOfficeRenglones => Set<OrdenCompraWorldOfficeRenglon>();
+    public DbSet<FacturaCompraWorldOffice> FacturasCompraWorldOffice => Set<FacturaCompraWorldOffice>();
 
     // Consumida vía "SELECT NEXT VALUE FOR dbo.SecuenciaConsecutivoCotizacion" (IConsecutivoCotizacionProvider)
     // para asignar el número oficial de una cotización solo al emitirla. Atómica ante concurrencia,
@@ -132,6 +133,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .WithMany(o => o.Renglones)
                 .HasForeignKey(r => r.OrdenCompraWorldOfficeId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<FacturaCompraWorldOffice>(e =>
+        {
+            e.HasIndex(f => f.IdAsientoContable).IsUnique();
+            e.HasIndex(f => f.Fecha);
+            e.HasIndex(f => f.NitProveedor);
         });
 
         modelBuilder.HasSequence<int>(SecuenciaConsecutivoCotizacion, schema: "dbo")

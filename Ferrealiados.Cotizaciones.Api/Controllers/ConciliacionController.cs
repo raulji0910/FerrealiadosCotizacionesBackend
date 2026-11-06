@@ -51,4 +51,12 @@ public class ConciliacionController(IConciliacionService conciliacionService, Ti
         [FromBody] IReadOnlyList<OrdenCompraEntradaDto> ordenes,
         CancellationToken ct = default)
         => Ok(await conciliacionService.SincronizarOrdenesAsync(ordenes, ct));
+
+    [HttpPost("facturas-compra")]
+    [Authorize(Roles = "Admin")]
+    [RequestSizeLimit(50_000_000)]
+    public async Task<ActionResult<SincronizacionFacturasCompraResultadoDto>> SincronizarFacturasCompra(
+        [FromBody] SincronizacionFacturasCompraEntradaDto entrada,
+        CancellationToken ct = default)
+        => Ok(await conciliacionService.SincronizarFacturasCompraAsync(entrada, ct));
 }

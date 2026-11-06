@@ -14,6 +14,9 @@ public class WorldOfficeReader(string connectionString)
     private record CabeceraRow(int IdAsientoContable, decimal DocumentoNumero, DateTime Fecha, string? Identificacion,
         string? Nombre, string? Apellidos, bool Anulada);
 
+    private record FacturaCompraRow(int IdAsientoContable, decimal DocumentoNumero, DateTime Fecha, string? Identificacion,
+        string? Nombre, string? Apellidos, string? DocExternoPrefijo, string? DocumentoExterno, string? Personalizado1, bool Anulada);
+
     private record RenglonRow(int IdAsientoContable, string? Codigo, string? Descripcion, decimal? Cantidad,
         decimal? ValorUnitario, decimal? Iva);
 
@@ -78,6 +81,47 @@ public class WorldOfficeReader(string connectionString)
                         r.ValorUnitario ?? 0m,
                         (r.Iva ?? 0m) * 100m))
                     .ToList()))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Encabezados de las FC desde <paramref name="desde"/> (anuladas marcadas). Contabilidad escribe
+    /// en Personalizado1 la(s) OC que cubre la factura y en NúmDocumentoExterno el número de la
+    /// factura del proveedor: con eso la API cruza como último recurso (ver PASO 14-15 del script de
+    /// exploración).
+    /// </summary>
+    public async Task<IReadOnlyList<FacturaCompraEntradaDto>> ObtenerFacturasCompraAsync(string prefijo, DateOnly desde, CancellationToken ct = default)
+    {
+        const string sql = """
+            SELECT
+                a.IdAsientoContable,
+                a.DocumentoNúmero          AS DocumentoNumero,
+                a.Fecha,
+                t.Identificacion,
+                t.Nombre,
+                t.Apellidos,
+                a.DocExternoPrefijo,
+                a.NúmDocumentoExterno      AS DocumentoExterno,
+                a.Personalizado1,
+                CAST(CASE WHEN a.senAnulado = -1 THEN 1 ELSE 0 END AS bit) AS Anulada
+            FROM [CuentasContables - Asientos] a
+            LEFT JOIN Terceros t ON t.IdTercero = a.IdTerceroExterno
+            WHERE a.prefijo = @Prefijo AND a.Fecha >= @Desde;
+            """;
+
+        await using var conexion = new SqlConnection(connectionString);
+        var filas = await conexion.QueryAsync<FacturaCompraRow>(new CommandDefinition(sql,
+            new { Prefijo = prefijo, Desde = desde.ToDateTime(TimeOnly.MinValue) }, cancellationToken: ct));
+
+        return filas.Select(f => new FacturaCompraEntradaDto(
+                f.IdAsientoContable,
+                (int)f.DocumentoNumero,
+                DateOnly.FromDateTime(f.Fecha),
+                f.Identificacion?.Trim() ?? "",
+                $"{f.Nombre} {f.Apellidos}".Trim(),
+                $"{f.DocExternoPrefijo?.Trim()}{f.DocumentoExterno?.Trim()}",
+                f.Personalizado1?.Trim(),
+                f.Anulada))
             .ToList();
     }
 }
