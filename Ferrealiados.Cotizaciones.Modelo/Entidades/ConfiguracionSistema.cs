@@ -19,4 +19,8 @@ public class ConfiguracionSistema
 public static class ClavesConfiguracion
 {
     public const string MesesVigenciaPrecio = "MESES_VIGENCIA_PRECIO";
+
+    // Hora UTC (ISO 8601) de la última vez que el Sincronizador subió las OC de World Office. Se
+    // guarda aparte porque las OC que no cambiaron ya no se reescriben en cada corrida.
+    public const string UltimaSincronizacionOrdenes = "CONCILIACION_ULTIMA_SINCRONIZACION_OC";
 }

@@ -5,6 +5,7 @@ namespace Ferrealiados.Cotizaciones.Negocio.Interfaces;
 public interface IConciliacionService
 {
     Task<RegistroFacturasResultadoDto> RegistrarFacturasAsync(IReadOnlyList<FacturaXmlEntradaDto> facturas, CancellationToken ct = default);
+    Task<CargaArchivosResultadoDto> CargarArchivosAsync(IReadOnlyList<ArchivoCargado> archivos, CancellationToken ct = default);
     Task<SincronizacionOrdenesResultadoDto> SincronizarOrdenesAsync(IReadOnlyList<OrdenCompraEntradaDto> ordenes, CancellationToken ct = default);
     Task<SincronizacionFacturasCompraResultadoDto> SincronizarFacturasCompraAsync(SincronizacionFacturasCompraEntradaDto entrada, CancellationToken ct = default);
     Task<ConciliacionDto> ConciliarAsync(DateOnly desde, DateOnly hasta, CancellationToken ct = default);

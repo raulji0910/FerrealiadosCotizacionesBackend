@@ -1,4 +1,4 @@
-using System.IO.Compression;
+using Ferrealiados.Cotizaciones.Negocio.Conciliacion;
 using Ferrealiados.Cotizaciones.Negocio.DTOs;
 using MailKit;
 using MailKit.Net.Imap;
@@ -67,33 +67,13 @@ public class CorreoFacturasWatcher(string host, int puerto, string usuario, stri
     }
 
     // Un XML suelto o un ZIP (que puede traer otros ZIP adentro, como el "Descargar todo" de
-    // Outlook, que empaca los ZIP de los proveedores en uno solo).
+    // Outlook, que empaca los ZIP de los proveedores en uno solo). La lectura es la misma que usa la
+    // API para los ZIP de la DIAN que se suben desde la pantalla.
     internal static void ExtraerDeArchivo(string nombre, Stream contenido, string? asunto, DateTime? fecha, List<FacturaXmlEntradaDto> xmls)
     {
-        if (nombre.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-        {
-            try
-            {
-                using var zip = new ZipArchive(contenido, ZipArchiveMode.Read);
-                foreach (var entrada in zip.Entries.Where(e => e.Name.EndsWith(".xml", StringComparison.OrdinalIgnoreCase) ||
-                                                              e.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)))
-                {
-                    using var interno = new MemoryStream();
-                    using (var origen = entrada.Open())
-                        origen.CopyTo(interno);
-                    interno.Position = 0;
-                    ExtraerDeArchivo(entrada.Name, interno, asunto, fecha, xmls);
-                }
-            }
-            catch (InvalidDataException)
-            {
-                Console.WriteLine($"[{DateTime.Now:s}]   {nombre} de \"{asunto}\" no es un ZIP válido, se omite.");
-            }
-        }
-        else if (nombre.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
-        {
-            using var lector = new StreamReader(contenido);
-            xmls.Add(new FacturaXmlEntradaDto(lector.ReadToEnd(), nombre, asunto, fecha));
-        }
+        var avisos = new List<string>();
+        ExtractorXmlFacturas.Extraer(nombre, contenido, asunto, fecha, xmls, avisos);
+        foreach (var aviso in avisos)
+            Console.WriteLine($"[{DateTime.Now:s}]   {aviso} (\"{asunto}\")");
     }
 }

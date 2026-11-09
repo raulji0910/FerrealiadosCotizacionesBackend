@@ -83,6 +83,63 @@ public class ConciliacionServiceTests
         Assert.Equal(60000m, oc.Subtotal);
     }
 
+    // El Sincronizador manda las mismas ~1000 OC cada 10 minutos: si no cambiaron no se reescribe
+    // nada (antes se borraban y reinsertaban todos los renglones y el log de SQL llegó a 19 GB).
+    [Fact]
+    public async Task SincronizarOrdenes_SinCambios_NoReescribeNada()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        await servicio.SincronizarOrdenesAsync([Oc(7830, 1332, 10m, 7500m), Oc(7831, 1333, 2m, 1000m)]);
+        var idsRenglones = await db.OrdenCompraWorldOfficeRenglones.OrderBy(r => r.Id).Select(r => r.Id).ToListAsync();
+
+        var resultado = await servicio.SincronizarOrdenesAsync([Oc(7830, 1332, 10m, 7500m), Oc(7831, 1333, 2m, 1000m)]);
+
+        Assert.Equal(new SincronizacionOrdenesResultadoDto(0, 0), resultado);
+        Assert.Equal(idsRenglones, await db.OrdenCompraWorldOfficeRenglones.OrderBy(r => r.Id).Select(r => r.Id).ToListAsync());
+    }
+
+    [Fact]
+    public async Task SincronizarOrdenes_SoloCambiaElEncabezado_ActualizaSinTocarRenglones()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        await servicio.SincronizarOrdenesAsync([Oc(7830, 1332, 10m, 7500m)]);
+        var idRenglon = (await db.OrdenCompraWorldOfficeRenglones.SingleAsync()).Id;
+
+        var resultado = await servicio.SincronizarOrdenesAsync([Oc(7830, 1332, 10m, 7500m, anulada: true)]);
+
+        Assert.Equal(new SincronizacionOrdenesResultadoDto(0, 1), resultado);
+        Assert.True((await db.OrdenesCompraWorldOffice.SingleAsync()).Anulada);
+        Assert.Equal(idRenglon, (await db.OrdenCompraWorldOfficeRenglones.SingleAsync()).Id);
+    }
+
+    [Fact]
+    public async Task SincronizarOrdenes_GuardaLaHoraDeLaUltimaSincronizacionAunqueNadaCambie()
+    {
+        using var db = CrearContexto();
+        await CrearServicio(db).SincronizarOrdenesAsync([Oc(7830, 1332, 10m, 7500m)]);
+
+        var manana = new ConciliacionService(db, new TiempoFijo(Hoy.AddDays(1).ToDateTime(TimeOnly.MinValue)));
+        await manana.SincronizarOrdenesAsync([Oc(7830, 1332, 10m, 7500m)]);
+        var conciliacion = await manana.ConciliarAsync(Hoy.AddDays(-30), Hoy);
+
+        Assert.Equal(Hoy.AddDays(1).ToDateTime(TimeOnly.MinValue), conciliacion.UltimaSincronizacionOrdenes);
+    }
+
+    [Fact]
+    public async Task SincronizarFacturasCompra_SinCambios_NoCuentaActualizadas()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        var desde = new DateOnly(2026, 6, 1);
+        await servicio.SincronizarFacturasCompraAsync(new(desde, [Fc(1, 10, "1332")]));
+
+        var resultado = await servicio.SincronizarFacturasCompraAsync(new(desde, [Fc(1, 10, "1332")]));
+
+        Assert.Equal(new SincronizacionFacturasCompraResultadoDto(0, 0, 0), resultado);
+    }
+
     [Fact]
     public async Task Conciliar_FacturaYOcIguales_Cuadra()
     {

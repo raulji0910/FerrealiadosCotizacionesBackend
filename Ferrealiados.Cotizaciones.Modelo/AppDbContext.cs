@@ -110,6 +110,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(f => f.Cufe).IsUnique();
             e.HasIndex(f => f.FechaEmision);
             e.HasIndex(f => f.NitEmisor);
+            e.Property(f => f.Origen).HasDefaultValue(OrigenFactura.Correo);
         });
 
         modelBuilder.Entity<FacturaProveedorRenglon>(e =>

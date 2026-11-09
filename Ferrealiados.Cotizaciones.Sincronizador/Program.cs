@@ -14,6 +14,9 @@ var config = new ConfigurationBuilder()
     .AddEnvironmentVariables()
     .Build();
 
+// Log en logs\sincronizador-AAAA-MM-DD.log; los de más de DiasLogs días se borran solos.
+RegistroDiario.Iniciar(AppContext.BaseDirectory, int.TryParse(config["Sincronizador:DiasLogs"], out var diasLogs) ? diasLogs : 30);
+
 string Requerido(string clave) => config[clave] ?? throw new InvalidOperationException($"Falta configurar {clave}.");
 
 using var http = new HttpClient { BaseAddress = new Uri(Requerido("Ferrealiados:ApiBaseUrl")), Timeout = TimeSpan.FromMinutes(5) };

@@ -58,6 +58,12 @@ public class FacturaProveedor
 
     public DateTime FechaRegistro { get; set; }
 
+    // Por dónde entró: "Correo" (facturacion@, Sincronizador), "Carpeta" (carga única del
+    // Sincronizador con --carpeta) o "Dian" (ZIP descargado de la DIAN y subido desde la pantalla).
+    // Si la misma factura entra por dos lados se queda el primero (identidad por CUFE).
+    [MaxLength(20)]
+    public string Origen { get; set; } = OrigenFactura.Correo;
+
     public ICollection<FacturaProveedorRenglon> Renglones { get; set; } = new List<FacturaProveedorRenglon>();
 }
 
@@ -81,4 +87,11 @@ public class FacturaProveedorRenglon
 
     [Column(TypeName = "decimal(5,2)")]
     public decimal? PorcentajeIva { get; set; }
+}
+
+public static class OrigenFactura
+{
+    public const string Correo = "Correo";
+    public const string Carpeta = "Carpeta";
+    public const string Dian = "Dian";
 }

@@ -1,8 +1,17 @@
+# Tope al log de cada contenedor (docker logs): sin esto el archivo crece sin límite. En prod
+# el de la API llegó a 12,5 GB por los SQL que EF Core escribía en cada corrida del Sincronizador.
+x-log-limitado: &log-limitado
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   ferrealiados-db:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: ferrealiados-db
     restart: unless-stopped
+    logging: *log-limitado
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_SA_PASSWORD: ${SA_PASSWORD}
@@ -23,6 +32,7 @@ services:
       dockerfile: Ferrealiados.Cotizaciones.Api/Dockerfile
     container_name: ferrealiados-api
     restart: unless-stopped
+    logging: *log-limitado
     depends_on:
       ferrealiados-db:
         condition: service_healthy
@@ -42,6 +52,7 @@ services:
       dockerfile: Dockerfile
     container_name: ferrealiados-web
     restart: unless-stopped
+    logging: *log-limitado
     depends_on:
       - ferrealiados-api
     ports:

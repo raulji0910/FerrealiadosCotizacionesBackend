@@ -15,11 +15,61 @@ public class ConciliacionService(AppDbContext db, TimeProvider reloj) : IConcili
 {
     private static readonly ReglasConciliacion Reglas = new();
 
+    // NIT de Ferrealiados JV, el receptor de las facturas de compra.
+    public const string NitFerrealiados = "901342748";
+
+    // Lo que sube el Sincronizador (correo o --carpeta). No valida receptor: el correo de
+    // facturación solo recibe facturas de compra y así se ha comportado desde el inicio.
     public async Task<RegistroFacturasResultadoDto> RegistrarFacturasAsync(IReadOnlyList<FacturaXmlEntradaDto> facturas, CancellationToken ct = default)
     {
-        int nuevas = 0, duplicadas = 0, noReconocidas = 0;
+        var detalle = await RegistrarAsync(facturas, origenForzado: null, validarReceptor: false, ct);
+        return new RegistroFacturasResultadoDto(
+            detalle.Count(d => d.Estado == EstadoCarga.Nueva),
+            detalle.Count(d => d.Estado == EstadoCarga.Duplicada),
+            detalle.Count(d => d.Estado == EstadoCarga.NoReconocida));
+    }
+
+    // ZIP/XML descargados de la DIAN y subidos desde la pantalla (varios a la vez). Aquí sí se valida
+    // que la factura sea para Ferrealiados: la persona puede equivocarse de archivo.
+    public async Task<CargaArchivosResultadoDto> CargarArchivosAsync(IReadOnlyList<ArchivoCargado> archivos, CancellationToken ct = default)
+    {
+        var xmls = new List<FacturaXmlEntradaDto>();
+        var avisos = new List<string>();
         var ahora = reloj.GetUtcNow().UtcDateTime;
-        var cufesEnLote = new HashSet<string>();
+
+        foreach (var archivo in archivos)
+        {
+            if (!ExtractorXmlFacturas.EsArchivoSoportado(archivo.Nombre))
+            {
+                avisos.Add($"{archivo.Nombre}: solo se aceptan archivos .zip o .xml, se omite.");
+                continue;
+            }
+
+            var antes = xmls.Count;
+            var avisosAntes = avisos.Count;
+            ExtractorXmlFacturas.Extraer(archivo.Nombre, archivo.Contenido, $"Carga DIAN: {archivo.Nombre}", ahora, xmls, avisos);
+            // Si ya se avisó algo de ese archivo (ZIP dañado, muy grande), no repetir "no trae XML".
+            if (xmls.Count == antes && avisos.Count == avisosAntes)
+                avisos.Add($"{archivo.Nombre}: no trae ningún XML.");
+        }
+
+        var detalle = await RegistrarAsync(xmls, OrigenFactura.Dian, validarReceptor: true, ct);
+        return new CargaArchivosResultadoDto(
+            archivos.Count,
+            detalle.Count(d => d.Estado == EstadoCarga.Nueva),
+            detalle.Count(d => d.Estado == EstadoCarga.Duplicada),
+            detalle.Count(d => d.Estado == EstadoCarga.NoReconocida),
+            detalle.Count(d => d.Estado == EstadoCarga.OtroReceptor),
+            detalle,
+            avisos);
+    }
+
+    private async Task<List<FacturaCargadaDto>> RegistrarAsync(
+        IReadOnlyList<FacturaXmlEntradaDto> facturas, string? origenForzado, bool validarReceptor, CancellationToken ct)
+    {
+        var detalle = new List<FacturaCargadaDto>();
+        var ahora = reloj.GetUtcNow().UtcDateTime;
+        var origenEnLote = new Dictionary<string, string>();
 
         foreach (var entrada in facturas)
         {
@@ -35,15 +85,33 @@ public class ConciliacionService(AppDbContext db, TimeProvider reloj) : IConcili
 
             if (leida is null || string.IsNullOrWhiteSpace(leida.Cufe))
             {
-                noReconocidas++;
+                detalle.Add(new FacturaCargadaDto(entrada.NombreArchivo, null, null, null, null, null, EstadoCarga.NoReconocida, null));
                 continue;
             }
 
-            if (!cufesEnLote.Add(leida.Cufe) || await db.FacturasProveedor.AnyAsync(f => f.Cufe == leida.Cufe, ct))
+            FacturaCargadaDto Renglon(string estado, string? origenExistente = null) => new(
+                entrada.NombreArchivo, leida.Numero, leida.NitEmisor, leida.NombreEmisor, leida.FechaEmision, leida.Total,
+                estado, origenExistente);
+
+            if (validarReceptor && leida.NitReceptor != NitFerrealiados)
             {
-                duplicadas++;
+                detalle.Add(Renglon(EstadoCarga.OtroReceptor));
                 continue;
             }
+
+            var existente = origenEnLote.GetValueOrDefault(leida.Cufe)
+                            ?? await db.FacturasProveedor.Where(f => f.Cufe == leida.Cufe).Select(f => f.Origen).FirstOrDefaultAsync(ct);
+            if (existente is not null)
+            {
+                detalle.Add(Renglon(EstadoCarga.Duplicada, existente));
+                continue;
+            }
+
+            var origen = origenForzado
+                         ?? (entrada.CorreoAsunto?.StartsWith("Carga desde carpeta", StringComparison.OrdinalIgnoreCase) == true
+                             ? OrigenFactura.Carpeta
+                             : OrigenFactura.Correo);
+            origenEnLote[leida.Cufe] = origen;
 
             db.FacturasProveedor.Add(new FacturaProveedor
             {
@@ -63,6 +131,7 @@ public class ConciliacionService(AppDbContext db, TimeProvider reloj) : IConcili
                 CorreoAsunto = entrada.CorreoAsunto is null ? null : Truncar(entrada.CorreoAsunto, 500),
                 CorreoFecha = entrada.CorreoFecha,
                 FechaRegistro = ahora,
+                Origen = origen,
                 Renglones = leida.Renglones.Select((r, i) => new FacturaProveedorRenglon
                 {
                     Orden = i + 1,
@@ -72,11 +141,11 @@ public class ConciliacionService(AppDbContext db, TimeProvider reloj) : IConcili
                     PorcentajeIva = r.PorcentajeIva,
                 }).ToList(),
             });
-            nuevas++;
+            detalle.Add(Renglon(EstadoCarga.Nueva));
         }
 
         await db.SaveChangesAsync(ct);
-        return new RegistroFacturasResultadoDto(nuevas, duplicadas, noReconocidas);
+        return detalle;
     }
 
     public async Task<SincronizacionOrdenesResultadoDto> SincronizarOrdenesAsync(IReadOnlyList<OrdenCompraEntradaDto> ordenes, CancellationToken ct = default)
@@ -102,11 +171,24 @@ public class ConciliacionService(AppDbContext db, TimeProvider reloj) : IConcili
                 db.OrdenesCompraWorldOffice.Add(oc);
                 nuevas++;
             }
-            else
+
+            // El Sincronizador manda la ventana completa (~1000 OC) cada 10 minutos: solo se tocan
+            // las que cambiaron. Antes se borraban y reinsertaban todos los renglones en cada corrida,
+            // y eso inflaba el log de transacciones de SQL Server (19 GB) y el log del contenedor.
+            var renglones = entrada.Renglones.Select((r, i) => new OrdenCompraWorldOfficeRenglon
+            {
+                Orden = i + 1,
+                Codigo = r.Codigo is null ? null : Truncar(r.Codigo, 100),
+                Descripcion = Truncar(r.Descripcion, 500),
+                Cantidad = Math.Round(r.Cantidad, 4),
+                ValorUnitario = Math.Round(r.ValorUnitario, 4),
+                PorcentajeIva = Math.Round(r.PorcentajeIva, 2),
+            }).ToList();
+            var cambiaronRenglones = oc.Id == 0 || !MismosRenglones(oc.Renglones, renglones);
+            if (cambiaronRenglones && oc.Id != 0)
             {
                 db.OrdenCompraWorldOfficeRenglones.RemoveRange(oc.Renglones);
                 oc.Renglones.Clear();
-                actualizadas++;
             }
 
             // Mismo cálculo que MotorConciliacion espera: costo = Cantidad x ValorUnitario, IVA por
@@ -118,21 +200,22 @@ public class ConciliacionService(AppDbContext db, TimeProvider reloj) : IConcili
             oc.Anulada = entrada.Anulada;
             oc.Subtotal = Math.Round(entrada.Renglones.Sum(r => r.Cantidad * r.ValorUnitario), 2);
             oc.Iva = Math.Round(entrada.Renglones.Sum(r => r.Cantidad * r.ValorUnitario * r.PorcentajeIva / 100m), 2);
-            oc.FechaSincronizacion = ahora;
-            foreach (var (r, i) in entrada.Renglones.Select((r, i) => (r, i)))
+            if (cambiaronRenglones)
+                foreach (var r in renglones)
+                    oc.Renglones.Add(r);
+
+            if (oc.Id == 0)
             {
-                oc.Renglones.Add(new OrdenCompraWorldOfficeRenglon
-                {
-                    Orden = i + 1,
-                    Codigo = r.Codigo is null ? null : Truncar(r.Codigo, 100),
-                    Descripcion = Truncar(r.Descripcion, 500),
-                    Cantidad = r.Cantidad,
-                    ValorUnitario = r.ValorUnitario,
-                    PorcentajeIva = r.PorcentajeIva,
-                });
+                oc.FechaSincronizacion = ahora;
+            }
+            else if (cambiaronRenglones || db.Entry(oc).State == EntityState.Modified)
+            {
+                oc.FechaSincronizacion = ahora;
+                actualizadas++;
             }
         }
 
+        await GuardarUltimaSincronizacionAsync(ahora, ct);
         await db.SaveChangesAsync(ct);
         return new SincronizacionOrdenesResultadoDto(nuevas, actualizadas);
     }
@@ -160,10 +243,6 @@ public class ConciliacionService(AppDbContext db, TimeProvider reloj) : IConcili
                 existentes[e.IdAsientoContable] = fc;
                 nuevas++;
             }
-            else
-            {
-                actualizadas++;
-            }
 
             fc.Numero = e.Numero;
             fc.Fecha = e.Fecha;
@@ -172,7 +251,16 @@ public class ConciliacionService(AppDbContext db, TimeProvider reloj) : IConcili
             fc.DocumentoExterno = string.IsNullOrWhiteSpace(e.DocumentoExterno) ? null : Truncar(e.DocumentoExterno.Trim(), 100);
             fc.ReferenciaOrdenes = string.IsNullOrWhiteSpace(e.ReferenciaOrdenes) ? null : Truncar(e.ReferenciaOrdenes.Trim(), 200);
             fc.Anulada = e.Anulada;
-            fc.FechaSincronizacion = ahora;
+            // Igual que las OC: solo se reescribe la que cambió.
+            if (fc.Id == 0)
+            {
+                fc.FechaSincronizacion = ahora;
+            }
+            else if (db.Entry(fc).State == EntityState.Modified)
+            {
+                fc.FechaSincronizacion = ahora;
+                actualizadas++;
+            }
         }
 
         // Las de la ventana que ya no vinieron se borraron en WO.
@@ -227,7 +315,7 @@ public class ConciliacionService(AppDbContext db, TimeProvider reloj) : IConcili
             facturadasSinXml.Count,
             invalidas.Count);
 
-        var ultimaSincronizacion = await db.OrdenesCompraWorldOffice.MaxAsync(o => (DateTime?)o.FechaSincronizacion, ct);
+        var ultimaSincronizacion = await LeerUltimaSincronizacionAsync(ct);
         var ultimaFactura = await db.FacturasProveedor.MaxAsync(f => (DateTime?)f.FechaRegistro, ct);
 
         return new ConciliacionDto(desde, hasta, resumen, facturas, pendientes, facturadasSinXml, invalidas, ultimaSincronizacion, ultimaFactura);
@@ -270,7 +358,7 @@ public class ConciliacionService(AppDbContext db, TimeProvider reloj) : IConcili
 
     // Trae las facturas del rango más las de la ventana anterior (DiasAntes): una factura de hace
     // un mes pudo haber consumido ya una OC, y sin ella esa OC volvería a parecer disponible.
-    private async Task<(ResultadoConciliacion Resultado, Dictionary<string, int> FacturaIdPorCufe)> CalcularAsync(
+    private async Task<(ResultadoConciliacion Resultado, Dictionary<string, (int Id, string Origen)> FacturaPorCufe)> CalcularAsync(
         DateOnly desde, DateOnly hasta, CancellationToken ct)
     {
         var desdeContexto = desde.AddDays(-Reglas.DiasAntes);
@@ -280,7 +368,7 @@ public class ConciliacionService(AppDbContext db, TimeProvider reloj) : IConcili
             .Select(f => new
             {
                 f.Id, f.Cufe, f.Numero, f.TipoDocumento, f.FechaEmision, f.NitEmisor, f.NombreEmisor,
-                f.NitReceptor, f.Subtotal, f.Iva, f.Total, f.ReferenciaOrden,
+                f.NitReceptor, f.Subtotal, f.Iva, f.Total, f.ReferenciaOrden, f.Origen,
             })
             .ToListAsync(ct);
 
@@ -306,20 +394,61 @@ public class ConciliacionService(AppDbContext db, TimeProvider reloj) : IConcili
         var electronicas = facturas.Select(f => new FacturaElectronica(f.Cufe, f.Numero, f.TipoDocumento, f.FechaEmision,
             f.NitEmisor, f.NombreEmisor, f.NitReceptor, f.Subtotal, f.Iva, f.Total, f.ReferenciaOrden, []));
 
-        return (MotorConciliacion.Conciliar(electronicas, ordenes, Reglas, facturasCompra), facturas.ToDictionary(f => f.Cufe, f => f.Id));
+        return (MotorConciliacion.Conciliar(electronicas, ordenes, Reglas, facturasCompra), facturas.ToDictionary(f => f.Cufe, f => (f.Id, f.Origen)));
     }
 
-    private static FacturaConciliadaDto MapFactura(ResultadoFactura r, int facturaId)
+    private static FacturaConciliadaDto MapFactura(ResultadoFactura r, (int Id, string Origen) factura)
     {
         var ordenes = r.TodasLasOrdenes.ToList();
-        return new(facturaId, r.Factura.Numero, r.Factura.FechaEmision, r.Factura.NitEmisor, r.Factura.NombreEmisor,
+        return new(factura.Id, r.Factura.Numero, r.Factura.FechaEmision, r.Factura.NitEmisor, r.Factura.NombreEmisor,
             r.Factura.Subtotal, r.Factura.Iva, r.Factura.Total, r.Factura.ReferenciaOrden, r.Estado,
             r.OrdenCompra?.Numero, r.OrdenCompra?.Fecha,
             ordenes.Count == 0 ? null : ordenes.Sum(o => o.Subtotal),
             ordenes.Count == 0 ? null : ordenes.Sum(o => o.Iva),
             r.DiferenciaSubtotal, r.DiferenciaIva, r.Detalle,
             ordenes.Select(o => o.Numero).ToList(),
-            r.FacturaCompra?.Numero);
+            r.FacturaCompra?.Numero,
+            factura.Origen);
+    }
+
+    private static bool MismosRenglones(ICollection<OrdenCompraWorldOfficeRenglon> actuales, List<OrdenCompraWorldOfficeRenglon> nuevos)
+    {
+        if (actuales.Count != nuevos.Count) return false;
+        return actuales.OrderBy(r => r.Orden).Zip(nuevos).All(p =>
+            p.First.Orden == p.Second.Orden &&
+            p.First.Codigo == p.Second.Codigo &&
+            p.First.Descripcion == p.Second.Descripcion &&
+            p.First.Cantidad == p.Second.Cantidad &&
+            p.First.ValorUnitario == p.Second.ValorUnitario &&
+            p.First.PorcentajeIva == p.Second.PorcentajeIva);
+    }
+
+    private async Task GuardarUltimaSincronizacionAsync(DateTime ahora, CancellationToken ct)
+    {
+        var valor = ahora.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+        var fila = await db.ConfiguracionSistema.FirstOrDefaultAsync(c => c.Clave == ClavesConfiguracion.UltimaSincronizacionOrdenes, ct);
+        if (fila is null)
+            db.ConfiguracionSistema.Add(new ConfiguracionSistema
+            {
+                Clave = ClavesConfiguracion.UltimaSincronizacionOrdenes,
+                Valor = valor,
+                Descripcion = "Última vez que el Sincronizador subió las OC de World Office (UTC). La escribe el sistema.",
+            });
+        else
+            fila.Valor = valor;
+    }
+
+    // Antes de la primera corrida con este cambio no hay fila: se usa la fecha más reciente de las OC.
+    private async Task<DateTime?> LeerUltimaSincronizacionAsync(CancellationToken ct)
+    {
+        var valor = await db.ConfiguracionSistema.AsNoTracking()
+            .Where(c => c.Clave == ClavesConfiguracion.UltimaSincronizacionOrdenes)
+            .Select(c => c.Valor)
+            .FirstOrDefaultAsync(ct);
+        if (DateTime.TryParse(valor, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind, out var fecha))
+            return fecha;
+        return await db.OrdenesCompraWorldOffice.MaxAsync(o => (DateTime?)o.FechaSincronizacion, ct);
     }
 
     private static string Truncar(string valor, int maximo) => valor.Length <= maximo ? valor : valor[..maximo];

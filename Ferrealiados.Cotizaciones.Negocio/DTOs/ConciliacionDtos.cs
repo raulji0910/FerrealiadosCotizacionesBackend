@@ -8,6 +8,26 @@ namespace Ferrealiados.Cotizaciones.Negocio.DTOs;
 // así las reglas de lectura viven en un solo lugar.
 public record FacturaXmlEntradaDto(string Xml, string? NombreArchivo, string? CorreoAsunto, DateTime? CorreoFecha);
 
+// Resultado de subir ZIP/XML desde la pantalla (descargados de la DIAN): un renglón por XML leído.
+// Estado: "Nueva", "Duplicada" (ya estaba, por correo o por otra carga), "NoReconocida" (no es una
+// factura electrónica) u "OtroReceptor" (factura que no es para Ferrealiados).
+public record FacturaCargadaDto(string? NombreArchivo, string? Numero, string? NitProveedor, string? NombreProveedor,
+    DateOnly? FechaEmision, decimal? Total, string Estado, string? OrigenExistente);
+
+public static class EstadoCarga
+{
+    public const string Nueva = "Nueva";
+    public const string Duplicada = "Duplicada";
+    public const string NoReconocida = "NoReconocida";
+    public const string OtroReceptor = "OtroReceptor";
+}
+
+// Un archivo subido desde la pantalla (lo arma el controlador a partir del IFormFile).
+public record ArchivoCargado(string Nombre, Stream Contenido);
+
+public record CargaArchivosResultadoDto(int Archivos, int Nuevas, int Duplicadas, int NoReconocidas, int OtroReceptor,
+    IReadOnlyList<FacturaCargadaDto> Facturas, IReadOnlyList<string> Avisos);
+
 public record RegistroFacturasResultadoDto(int Nuevas, int Duplicadas, int NoReconocidas);
 
 public record OrdenCompraRenglonEntradaDto(string? Codigo, string Descripcion, decimal Cantidad, decimal ValorUnitario, decimal PorcentajeIva);
@@ -62,7 +82,9 @@ public record FacturaConciliadaDto(
     // Todas las OC del cruce (más de una solo cuando salió de una FC de WO que cita varias) y la FC
     // de WO de donde salió el cruce, si fue por esa vía. OrdenCompraSubtotal/Iva suman todas.
     IReadOnlyList<int> OrdenesCompra,
-    int? FacturaCompraNumero);
+    int? FacturaCompraNumero,
+    // Por dónde entró la factura: "Correo", "Carpeta" o "Dian" (ZIP subido desde la pantalla).
+    string Origen);
 
 public record OrdenPendienteDto(int Numero, DateOnly Fecha, string NitProveedor, string NombreProveedor, decimal Subtotal, decimal Iva, decimal SaldoSubtotal);
 

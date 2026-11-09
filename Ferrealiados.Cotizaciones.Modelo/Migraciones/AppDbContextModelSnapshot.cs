@@ -369,6 +369,13 @@ namespace Ferrealiados.Cotizaciones.Modelo.Migraciones
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<string>("Origen")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("Correo");
+
                     b.Property<string>("ReferenciaOrden")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");

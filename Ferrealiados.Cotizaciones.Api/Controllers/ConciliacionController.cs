@@ -44,6 +44,43 @@ public class ConciliacionController(IConciliacionService conciliacionService, Ti
         CancellationToken ct = default)
         => Ok(await conciliacionService.RegistrarFacturasAsync(facturas, ct));
 
+    // ZIP/XML descargados de la DIAN, varios a la vez, desde la pantalla. La DIAN es la que tiene
+    // todas las facturas: esto completa las que el proveedor no mandó a facturacion@.
+    [HttpPost("cargar-archivos")]
+    [Authorize(Roles = "Admin,Conciliador")]
+    [RequestSizeLimit(MaximoCargaBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = MaximoCargaBytes)]
+    public async Task<ActionResult<CargaArchivosResultadoDto>> CargarArchivos(
+        [FromForm] List<IFormFile> archivos,
+        CancellationToken ct = default)
+    {
+        if (archivos.Count == 0)
+            return BadRequest("Selecciona al menos un archivo .zip o .xml.");
+        if (archivos.Count > MaximoArchivosPorCarga)
+            return BadRequest($"Máximo {MaximoArchivosPorCarga} archivos por carga.");
+
+        var abiertos = new List<Stream>();
+        try
+        {
+            var cargados = new List<ArchivoCargado>();
+            foreach (var archivo in archivos)
+            {
+                var contenido = archivo.OpenReadStream();
+                abiertos.Add(contenido);
+                cargados.Add(new ArchivoCargado(Path.GetFileName(archivo.FileName), contenido));
+            }
+            return Ok(await conciliacionService.CargarArchivosAsync(cargados, ct));
+        }
+        finally
+        {
+            foreach (var s in abiertos)
+                await s.DisposeAsync();
+        }
+    }
+
+    private const int MaximoCargaBytes = 60_000_000;
+    private const int MaximoArchivosPorCarga = 500;
+
     [HttpPost("ordenes")]
     [Authorize(Roles = "Admin")]
     [RequestSizeLimit(50_000_000)]
