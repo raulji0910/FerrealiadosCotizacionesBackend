@@ -23,4 +23,8 @@ public static class ClavesConfiguracion
     // Hora UTC (ISO 8601) de la última vez que el Sincronizador subió las OC de World Office. Se
     // guarda aparte porque las OC que no cambiaron ya no se reescriben en cada corrida.
     public const string UltimaSincronizacionOrdenes = "CONCILIACION_ULTIMA_SINCRONIZACION_OC";
+
+    // Hora UTC (ISO 8601) de la última vez que el Sincronizador subió la cartera de clientes: es la
+    // "fecha de corte" que se muestra en la pantalla y en el correo.
+    public const string UltimaSincronizacionCartera = "CARTERA_ULTIMA_SINCRONIZACION";
 }

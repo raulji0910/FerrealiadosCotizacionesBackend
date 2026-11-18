@@ -1,0 +1,310 @@
+using Ferrealiados.Cotizaciones.Modelo;
+using Ferrealiados.Cotizaciones.Negocio.Cartera;
+using Ferrealiados.Cotizaciones.Negocio.DTOs;
+using Ferrealiados.Cotizaciones.Negocio.Servicios;
+using Microsoft.EntityFrameworkCore;
+
+namespace Ferrealiados.Cotizaciones.TestUnitarios;
+
+public class CarteraServiceTests
+{
+    // 18/11/2026 12:00 en Colombia.
+    private static readonly DateTime AhoraUtc = new(2026, 11, 18, 17, 0, 0, DateTimeKind.Utc);
+
+    private static AppDbContext CrearContexto()
+        => new(new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+
+    private static CarteraService CrearServicio(AppDbContext db, EnviadorFalso? enviador = null)
+        => new(db, enviador ?? new EnviadorFalso(), new TiempoFijo(AhoraUtc));
+
+    private static PartidaCarteraEntradaDto Partida(int id, string nit, decimal saldo, string vencimiento,
+        string prefijo = "FVE", string tipo = "Factura de Venta", string nombre = "CLIENTE UNO SAS", long numero = 0)
+        => new(id, "13050501", nit, nombre, tipo, prefijo, numero == 0 ? id : numero,
+            DateOnly.Parse(vencimiento).AddDays(-30), DateOnly.Parse(vencimiento), saldo);
+
+    private static SincronizacionCarteraEntradaDto Entrada(params PartidaCarteraEntradaDto[] partidas)
+        => new(partidas, null);
+
+    [Fact]
+    public async Task Sincronizar_DejaExactamenteLoQueHayEnWorldOffice()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        await servicio.SincronizarAsync(Entrada(Partida(1, "900", 100m, "2026-11-01"), Partida(2, "900", 200m, "2026-11-01")));
+
+        // La 1 se abonó en parte, la 2 se pagó (ya no viene) y llega una nueva.
+        var r = await servicio.SincronizarAsync(Entrada(Partida(1, "900", 60m, "2026-11-01"), Partida(3, "900", 50m, "2026-12-01")));
+
+        Assert.Equal(new SincronizacionCarteraResultadoDto(1, 1, 1, 0), r);
+        var saldos = await db.PartidasCartera.OrderBy(p => p.IdDocumentoWorldOffice).Select(p => p.Saldo).ToListAsync();
+        Assert.Equal([60m, 50m], saldos);
+    }
+
+    [Fact]
+    public async Task Sincronizar_QuitaEspaciosDoblesDelNombre_YNoMuestraSaldosDeRedondeo()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        await servicio.SincronizarAsync(Entrada(
+            Partida(1, "900", 100m, "2026-11-01", nombre: " MINIMA  ARQUITECTOS  S A S "),
+            Partida(2, "800", -1m, "2026-11-01", nombre: "CDA REVICOL SAS")));
+
+        var cartera = await servicio.ObtenerAsync();
+
+        var cliente = Assert.Single(cartera.Clientes);
+        Assert.Equal("MINIMA ARQUITECTOS S A S", cliente.Nombre);
+    }
+
+    [Fact]
+    public async Task Sincronizar_SinCambios_NoCuentaActualizadas()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        var entrada = Entrada(Partida(1, "900", 100m, "2026-11-01"));
+        await servicio.SincronizarAsync(entrada);
+
+        var r = await servicio.SincronizarAsync(entrada);
+
+        Assert.Equal(new SincronizacionCarteraResultadoDto(0, 0, 0, 0), r);
+    }
+
+    [Fact]
+    public async Task Sincronizar_SeparaRemisionesYDevolucionesDeRemision()
+    {
+        using var db = CrearContexto();
+        await CrearServicio(db).SincronizarAsync(Entrada(
+            Partida(1, "900", 100m, "2026-11-01"),
+            Partida(2, "900", 500m, "2026-11-01", prefijo: "REM", tipo: "Remisión"),
+            Partida(3, "900", -50m, "2026-11-01", prefijo: "FVE", tipo: "Devolucion de Remisión")));
+
+        var remisiones = await db.PartidasCartera.Where(p => p.EsRemision).Select(p => p.IdDocumentoWorldOffice).OrderBy(x => x).ToListAsync();
+        Assert.Equal([2, 3], remisiones);
+    }
+
+    [Fact]
+    public async Task Sincronizar_GuardaCorreosDeWorldOffice_SinTocarLosDeCobro()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        await servicio.SincronizarAsync(new SincronizacionCarteraEntradaDto(
+            [Partida(1, "900", 100m, "2026-11-01")],
+            [new CorreosClienteWorldOfficeDto("900", "CLIENTE UNO SAS", ["facturacion@uno.com", "no es correo", "FACTURACION@uno.com"])]));
+        await servicio.ActualizarContactoAsync("900", new ContactoCobroDto("pagos@uno.com", "Ana", "300"));
+
+        // Corrida donde falló la consulta de correos: no se borran los de WO ni los de cobro.
+        await servicio.SincronizarAsync(Entrada(Partida(1, "900", 100m, "2026-11-01")));
+
+        var cliente = await db.ClientesCartera.SingleAsync();
+        Assert.Equal("facturacion@uno.com", cliente.CorreosWorldOffice);
+        Assert.Equal("pagos@uno.com", cliente.CorreosCobro);
+        Assert.Equal("Ana", cliente.Contacto);
+    }
+
+    [Fact]
+    public async Task Obtener_RepartePorEdadesYNoIncluyeRemisiones()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        await servicio.SincronizarAsync(Entrada(
+            Partida(1, "900", 100m, "2026-11-30"),  // por vencer
+            Partida(2, "900", 200m, "2026-11-08"),  // 10 días
+            Partida(3, "900", 300m, "2026-10-04"),  // 45 días
+            Partida(4, "900", 400m, "2026-09-04"),  // 75 días
+            Partida(5, "900", 500m, "2026-06-01"),  // más de 90
+            Partida(6, "900", 999m, "2026-06-01", prefijo: "REM", tipo: "Remisión")));
+
+        var cartera = await servicio.ObtenerAsync();
+
+        var cliente = Assert.Single(cartera.Clientes);
+        Assert.Equal(new EdadesCarteraDto(100m, 200m, 300m, 400m, 500m), cliente.Edades);
+        Assert.Equal(1400m, cliente.Edades.Vencido);
+        Assert.Equal(5, cliente.Documentos);
+        Assert.Equal(170, cliente.DiasMaximoVencido);
+        Assert.Equal(1500m, cartera.Totales.Total);
+        Assert.NotNull(cartera.FechaCorte);
+    }
+
+    [Fact]
+    public async Task ConstruirCorreo_SinContactoDeCobro_NoSePuedeEnviar()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        await servicio.SincronizarAsync(Entrada(Partida(1, "900", 50000m, "2026-11-01")));
+
+        var correo = await servicio.ConstruirCorreoAsync("900");
+
+        Assert.Equal("El cliente no tiene correo de cobro.", correo!.NoSePuedeEnviar);
+    }
+
+    [Fact]
+    public async Task ConstruirCorreo_SaldoMenorAlMinimo_NoSePuedeEnviar()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        await servicio.SincronizarAsync(Entrada(Partida(1, "900", 1m, "2026-11-01")));
+        await servicio.ActualizarContactoAsync("900", new ContactoCobroDto("pagos@uno.com", null, null));
+
+        var correo = await servicio.ConstruirCorreoAsync("900");
+
+        Assert.StartsWith("El saldo ($1) es menor al mínimo", correo!.NoSePuedeEnviar);
+    }
+
+    [Fact]
+    public async Task Enviar_MandaAlContactoConCopiasVisiblesYQuedaEnElHistorial()
+    {
+        using var db = CrearContexto();
+        var enviador = new EnviadorFalso();
+        var servicio = CrearServicio(db, enviador);
+        await servicio.SincronizarAsync(Entrada(Partida(1, "900", 50000m, "2026-11-01", numero: 1234)));
+        await servicio.ActualizarContactoAsync("900", new ContactoCobroDto("pagos@uno.com; tesoreria@uno.com", null, null));
+
+        var r = await servicio.EnviarAsync("900", "cartera@ferrealiados.local");
+
+        Assert.True(r!.Enviado);
+        var enviado = Assert.Single(enviador.Enviados);
+        Assert.Equal(["pagos@uno.com", "tesoreria@uno.com"], enviado.Para);
+        Assert.Equal(["ventas@ferrealiadosjv.com", "gerencia.comercial@jimaco.com.co"], enviado.Copias);
+        Assert.Equal("cartera@ferrealiadosjv.com", enviado.Remitente);
+        Assert.Contains("FVE 1234", enviado.Html);
+        Assert.Equal("Estado de cuenta FERREALIADOS JV - CLIENTE UNO SAS - corte 18/11/2026", enviado.Asunto);
+
+        var envio = await db.EnviosCartera.SingleAsync();
+        Assert.True(envio.Exitoso);
+        Assert.Equal(50000m, envio.SaldoVencido);
+        Assert.Equal("cartera@ferrealiados.local", envio.Usuario);
+    }
+
+    [Fact]
+    public async Task Enviar_SiElServidorRechaza_QuedaComoFallidoEnElHistorial()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db, new EnviadorFalso { Error = new IOException("550 buzón inexistente") });
+        await servicio.SincronizarAsync(Entrada(Partida(1, "900", 50000m, "2026-11-01")));
+        await servicio.ActualizarContactoAsync("900", new ContactoCobroDto("pagos@uno.com", null, null));
+
+        var r = await servicio.EnviarAsync("900", "yo");
+
+        Assert.False(r!.Enviado);
+        Assert.Equal("550 buzón inexistente", (await db.EnviosCartera.SingleAsync()).Error);
+    }
+
+    [Fact]
+    public async Task Enviar_ClienteSinContacto_NoEnviaNiRegistra()
+    {
+        using var db = CrearContexto();
+        var enviador = new EnviadorFalso();
+        var servicio = CrearServicio(db, enviador);
+        await servicio.SincronizarAsync(Entrada(Partida(1, "900", 50000m, "2026-11-01")));
+
+        var r = await servicio.EnviarAsync("900", "yo");
+
+        Assert.False(r!.Enviado);
+        Assert.Empty(enviador.Enviados);
+        Assert.Empty(db.EnviosCartera);
+    }
+
+    [Fact]
+    public async Task ActualizarContacto_ConAlgoQueNoEsCorreo_Rechaza()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        await servicio.SincronizarAsync(Entrada(Partida(1, "900", 50000m, "2026-11-01")));
+
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
+            servicio.ActualizarContactoAsync("900", new ContactoCobroDto("pagos@uno.com; 302 4226878", null, null)));
+        Assert.Contains("302", ex.Message);
+    }
+
+    [Fact]
+    public async Task CargarContactos_CreaYActualiza_YAvisaLoInvalido()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        await servicio.SincronizarAsync(Entrada(Partida(1, "900", 50000m, "2026-11-01")));
+
+        var r = await servicio.CargarContactosAsync([
+            new ContactoCobroCargaDto("900", "UNO", "pagos@uno.com; 3001234567", "Ana", null),
+            new ContactoCobroCargaDto("800", "DOS SAS", "dos@dos.com", null, null),
+            new ContactoCobroCargaDto("", "SIN NIT", "x@x.com", null, null)
+        ]);
+
+        Assert.Equal(1, r.Actualizados);
+        Assert.Equal(1, r.Creados);
+        Assert.Equal(2, r.Avisos.Count);
+        Assert.Equal("pagos@uno.com", (await db.ClientesCartera.SingleAsync(c => c.Nit == "900")).CorreosCobro);
+    }
+
+    [Fact]
+    public async Task RemisionesSinFactura_TraeSoloRemisionesConSusDias()
+    {
+        using var db = CrearContexto();
+        await CrearServicio(db).SincronizarAsync(Entrada(
+            Partida(1, "900", 100m, "2026-11-01"),
+            Partida(2, "900", 500m, "2026-11-08", prefijo: "REM", tipo: "Remisión")));
+
+        var remisiones = await CrearServicio(db).ObtenerRemisionesSinFacturaAsync();
+
+        var rem = Assert.Single(remisiones);
+        Assert.Equal(2, rem.Numero);
+        Assert.Equal(40, rem.DiasSinFacturar); // fecha 09/10 → 18/11
+    }
+
+    [Fact]
+    public async Task ActualizarConfiguracion_CopiaInvalida_Rechaza()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        var actual = await servicio.ObtenerConfiguracionAsync();
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            servicio.ActualizarConfiguracionAsync(actual with { Copias = "ventas@ferrealiadosjv.com; gerencia" }));
+
+        var nueva = await servicio.ActualizarConfiguracionAsync(actual with { SaldoMinimo = 50000m, Copias = "a@b.com" });
+        Assert.Equal(50000m, nueva.SaldoMinimo);
+        Assert.Equal("a@b.com", (await servicio.ObtenerConfiguracionAsync()).Copias);
+    }
+
+    [Fact]
+    public void Html_EscapaElTextoYFormateaPesos()
+    {
+        var html = CorreoCarteraBuilder.Html("Señores {cliente}: total {total}", "Cuenta <b>123</b>", "Cartera", "A&D <SAS>", "900",
+            new DateOnly(2026, 11, 18),
+            [new DocumentoCarteraDto("Factura de Venta", "FVE", 7, new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 31), 18, 1234567.4m)],
+            new EdadesCarteraDto(0, 1234567.4m, 0, 0, 0));
+
+        Assert.Contains("A&amp;D &lt;SAS&gt;: total $1.234.567", html);
+        Assert.Contains("Cuenta &lt;b&gt;123&lt;/b&gt;", html);
+        Assert.DoesNotContain("<SAS>", html);
+    }
+
+    [Fact]
+    public void SepararCorreos_LimpiaRepetidosYSeparaInvalidos()
+    {
+        var invalidos = new List<string>();
+
+        var correos = CorreoCarteraBuilder.SepararCorreos("a@b.com, A@B.com;c@d.co\n302 4226878 @x", invalidos);
+
+        Assert.Equal(["a@b.com", "c@d.co"], correos);
+        Assert.Equal(["302", "4226878", "@x"], invalidos);
+    }
+
+    private sealed class EnviadorFalso : IEnviadorCorreo
+    {
+        public List<CorreoSaliente> Enviados { get; } = [];
+        public Exception? Error { get; init; }
+        public bool EstaConfigurado => true;
+
+        public Task EnviarAsync(CorreoSaliente correo, CancellationToken ct = default)
+        {
+            if (Error is not null) throw Error;
+            Enviados.Add(correo);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class TiempoFijo(DateTime ahora) : TimeProvider
+    {
+        private readonly DateTimeOffset _ahora = new(ahora, TimeSpan.Zero);
+        public override DateTimeOffset GetUtcNow() => _ahora;
+    }
+}

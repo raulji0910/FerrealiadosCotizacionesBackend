@@ -116,6 +116,35 @@ catch (Exception ex)
     Console.WriteLine($"[{DateTime.Now:s}] ERROR sincronizando FC: {ex.Message}");
 }
 
+// ---- Fase 1c: cartera de clientes (cuenta 1305) + correos de los clientes en WO ----
+// Se manda la cartera completa en cada corrida (unos cientos de partidas): la API deja exactamente
+// lo que hay en WO. Si la consulta de correos falla, la cartera se sube igual (sin tocar los correos).
+try
+{
+    var cuenta = config["WorldOffice:PrefijoCuentaCartera"] ?? "1305";
+    var lector = new WorldOfficeReader(Requerido("WorldOffice:ConnectionString"));
+    var partidas = await lector.ObtenerCarteraClientesAsync(cuenta);
+
+    IReadOnlyList<CorreosClienteWorldOfficeDto>? correosClientes = null;
+    try
+    {
+        correosClientes = await lector.ObtenerCorreosClientesAsync(partidas.Select(p => p.Nit).Distinct().ToList());
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[{DateTime.Now:s}] AVISO: no se pudieron leer los correos de los clientes en WO: {ex.Message}");
+    }
+
+    var r = await api.SincronizarCarteraAsync(new SincronizacionCarteraEntradaDto(partidas, correosClientes));
+    Console.WriteLine($"[{DateTime.Now:s}] Cartera: {partidas.Count} partidas de {partidas.Select(p => p.Nit).Distinct().Count()} clientes " +
+                      $"({partidas.Count(p => p.Prefijo == "REM")} remisiones): {r.Nuevas} nuevas, {r.Actualizadas} actualizadas, {r.Eliminadas} eliminadas.");
+}
+catch (Exception ex)
+{
+    huboError = true;
+    Console.WriteLine($"[{DateTime.Now:s}] ERROR sincronizando la cartera: {ex.Message}");
+}
+
 // ---- Fase 2: facturas electrónicas del correo de facturación ----
 // Se avanza la marca correo por correo, solo después de que la API confirmó: si algo falla a
 // mitad, la próxima corrida retoma desde el último correo confirmado (y la API deduplica por CUFE).

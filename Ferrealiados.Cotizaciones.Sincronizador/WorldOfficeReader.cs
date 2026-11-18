@@ -124,4 +124,91 @@ public class WorldOfficeReader(string connectionString)
                 f.Anulada))
             .ToList();
     }
+
+    private record PartidaCarteraRow(int? AbonaADocumento, string? Identificacion, string? NombresTerceros, string? Documento,
+        string? Prefijo, decimal? DocumentoNumero, DateTime? Fecha, DateTime? Vencimiento, decimal? Saldo, string? CodigoCuentaContable);
+
+    private record CorreoTerceroRow(string? Identificacion, string? Nombre, string? Apellidos, string? EMail, string? EMail2, string? EMail3);
+
+    /// <summary>
+    /// Cartera de clientes abierta desde <c>Vista_CuentasPorCobrar_Detallada</c> (la vista de WO que ya
+    /// descuenta los abonos). La vista trae también anticipos a proveedores (1330) y préstamos a
+    /// empleados/socios (1325): solo se toman las cuentas que empiezan por
+    /// <paramref name="prefijoCuenta"/> (1305 clientes). Incluye las remisiones (en Ferrealiados se
+    /// contabilizan en cartera y la FVE las cruza al facturar): la API las separa.
+    /// </summary>
+    public async Task<IReadOnlyList<PartidaCarteraEntradaDto>> ObtenerCarteraClientesAsync(string prefijoCuenta, CancellationToken ct = default)
+    {
+        const string sql = """
+            SELECT
+                AbonaADocumento,
+                Identificacion,
+                Nombres_terceros     AS NombresTerceros,
+                Documento,
+                prefijo              AS Prefijo,
+                DocumentoNumero,
+                Fecha,
+                Vencimiento,
+                Saldo,
+                CodigoCuentaContable
+            FROM Vista_CuentasPorCobrar_Detallada
+            WHERE Saldo <> 0 AND CodigoCuentaContable LIKE @Cuenta;
+            """;
+
+        await using var conexion = new SqlConnection(connectionString);
+        var filas = await conexion.QueryAsync<PartidaCarteraRow>(new CommandDefinition(sql, new { Cuenta = prefijoCuenta + "%" }, cancellationToken: ct));
+
+        return filas
+            .Where(f => f.AbonaADocumento is not null && !string.IsNullOrWhiteSpace(f.Identificacion))
+            .Select(f => new PartidaCarteraEntradaDto(
+                f.AbonaADocumento!.Value,
+                f.CodigoCuentaContable?.Trim() ?? "",
+                f.Identificacion!.Trim(),
+                f.NombresTerceros?.Trim() ?? "",
+                f.Documento?.Trim() ?? "",
+                f.Prefijo?.Trim() ?? "",
+                (long)(f.DocumentoNumero ?? 0m),
+                DateOnly.FromDateTime(f.Fecha ?? DateTime.Today),
+                DateOnly.FromDateTime(f.Vencimiento ?? f.Fecha ?? DateTime.Today),
+                f.Saldo ?? 0m))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Email 1/2/3 de las direcciones de los clientes en WO (<c>[Terceros - Direcciones]</c>). Son los
+    /// de facturación: la app los muestra solo como referencia para armar los contactos de cobro.
+    /// </summary>
+    public async Task<IReadOnlyList<CorreosClienteWorldOfficeDto>> ObtenerCorreosClientesAsync(IReadOnlyCollection<string> nits, CancellationToken ct = default)
+    {
+        if (nits.Count == 0) return [];
+
+        const string sql = """
+            SELECT
+                LTRIM(RTRIM(t.Identificacion)) AS Identificacion,
+                t.Nombre,
+                t.Apellidos,
+                d.EMail,
+                d.EMail2,
+                d.EMail3
+            FROM Terceros t
+            JOIN [Terceros - Direcciones] d ON d.IdTercero = t.IdTercero
+            WHERE LTRIM(RTRIM(t.Identificacion)) IN @Nits;
+            """;
+
+        await using var conexion = new SqlConnection(connectionString);
+        var filas = await conexion.QueryAsync<CorreoTerceroRow>(new CommandDefinition(sql, new { Nits = nits.ToArray() }, cancellationToken: ct));
+
+        return filas
+            .Where(f => !string.IsNullOrWhiteSpace(f.Identificacion))
+            .GroupBy(f => f.Identificacion!.Trim())
+            .Select(g => new CorreosClienteWorldOfficeDto(
+                g.Key,
+                $"{g.First().Nombre} {g.First().Apellidos}".Trim(),
+                g.SelectMany(f => new[] { f.EMail, f.EMail2, f.EMail3 })
+                    .Where(e => !string.IsNullOrWhiteSpace(e))
+                    .Select(e => e!.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList()))
+            .ToList();
+    }
 }

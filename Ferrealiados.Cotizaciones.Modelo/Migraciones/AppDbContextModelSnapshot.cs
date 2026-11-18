@@ -72,6 +72,105 @@ namespace Ferrealiados.Cotizaciones.Modelo.Migraciones
                     b.ToTable("Clientes");
                 });
 
+            modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.ClienteCartera", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Contacto")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("CorreosCobro")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("CorreosWorldOffice")
+                        .HasMaxLength(600)
+                        .HasColumnType("nvarchar(600)");
+
+                    b.Property<DateTime?>("FechaActualizacionContacto")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Nit")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("Telefono")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Nit")
+                        .IsUnique();
+
+                    b.ToTable("ClientesCartera");
+                });
+
+            modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.ConfiguracionCartera", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Asunto")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("Copias")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("Cuerpo")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("DatosPago")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("NombreRemitente")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Remitente")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<decimal>("SaldoMinimo")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ConfiguracionCartera");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Asunto = "Estado de cuenta FERREALIADOS JV - {cliente} - corte {fechaCorte}",
+                            Copias = "ventas@ferrealiadosjv.com; gerencia.comercial@jimaco.com.co",
+                            Cuerpo = "Señores {cliente}:\n\nCordial saludo. Les compartimos el estado de cuenta con FERREALIADOS JV con corte al {fechaCorte}, por un saldo total de {total}.\n\nAgradecemos su pronta respuesta ya que, revisando nuestros extractos bancarios, no contamos con soportes de pago para los siguientes documentos. Si ya realizaron el pago, por favor envíennos el soporte respondiendo este correo.",
+                            NombreRemitente = "Cartera FERREALIADOS JV",
+                            Remitente = "cartera@ferrealiadosjv.com",
+                            SaldoMinimo = 10000m
+                        });
+                });
+
             modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.ConfiguracionSistema", b =>
                 {
                     b.Property<int>("Id")
@@ -261,6 +360,71 @@ namespace Ferrealiados.Cotizaciones.Modelo.Migraciones
                     b.HasIndex("ProductoProveedorPrecioId");
 
                     b.ToTable("CotizacionItems");
+                });
+
+            modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.EnvioCartera", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Asunto")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("Copias")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<int>("Documentos")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<bool>("Exitoso")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime>("Fecha")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Nit")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("NombreCliente")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("Para")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<decimal>("Saldo")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("SaldoVencido")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Usuario")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Fecha");
+
+                    b.HasIndex("Nit");
+
+                    b.ToTable("EnviosCartera");
                 });
 
             modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.FacturaCompraWorldOffice", b =>
@@ -530,6 +694,70 @@ namespace Ferrealiados.Cotizaciones.Modelo.Migraciones
                     b.HasIndex("OrdenCompraWorldOfficeId");
 
                     b.ToTable("OrdenCompraWorldOfficeRenglones");
+                });
+
+            modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.PartidaCartera", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CodigoCuenta")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<bool>("EsRemision")
+                        .HasColumnType("bit");
+
+                    b.Property<DateOnly>("Fecha")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime>("FechaSincronizacion")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("IdDocumentoWorldOffice")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Nit")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("NombreCliente")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<long>("Numero")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Prefijo")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<decimal>("Saldo")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("TipoDocumento")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateOnly>("Vencimiento")
+                        .HasColumnType("date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Nit");
+
+                    b.HasIndex("IdDocumentoWorldOffice", "CodigoCuenta")
+                        .IsUnique();
+
+                    b.ToTable("PartidasCartera");
                 });
 
             modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.Producto", b =>

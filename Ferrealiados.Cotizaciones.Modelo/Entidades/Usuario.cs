@@ -7,7 +7,9 @@ public enum RolUsuario
     Admin = 1,
     Cotizador = 2,
     // Solo entra al módulo de conciliación de facturas de proveedor.
-    Conciliador = 3
+    Conciliador = 3,
+    // Solo entra al módulo de cartera (estado de cuenta a clientes y remisiones sin factura).
+    Cartera = 4
 }
 
 public class Usuario

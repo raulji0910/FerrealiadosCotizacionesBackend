@@ -21,6 +21,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICotizacionPdfBuilder, Documentos.CotizacionPdfBuilder>();
         services.AddScoped<ICotizacionService, CotizacionService>();
         services.AddScoped<IConciliacionService, ConciliacionService>();
+        services.AddSingleton<Cartera.IEnviadorCorreo, Cartera.SmtpEnviadorCorreo>();
+        services.AddScoped<ICarteraService, CarteraService>();
         return services;
     }
 }

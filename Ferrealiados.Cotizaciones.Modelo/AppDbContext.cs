@@ -18,6 +18,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<OrdenCompraWorldOffice> OrdenesCompraWorldOffice => Set<OrdenCompraWorldOffice>();
     public DbSet<OrdenCompraWorldOfficeRenglon> OrdenCompraWorldOfficeRenglones => Set<OrdenCompraWorldOfficeRenglon>();
     public DbSet<FacturaCompraWorldOffice> FacturasCompraWorldOffice => Set<FacturaCompraWorldOffice>();
+    public DbSet<PartidaCartera> PartidasCartera => Set<PartidaCartera>();
+    public DbSet<ClienteCartera> ClientesCartera => Set<ClienteCartera>();
+    public DbSet<EnvioCartera> EnviosCartera => Set<EnvioCartera>();
+    public DbSet<ConfiguracionCartera> ConfiguracionCartera => Set<ConfiguracionCartera>();
 
     // Consumida vía "SELECT NEXT VALUE FOR dbo.SecuenciaConsecutivoCotizacion" (IConsecutivoCotizacionProvider)
     // para asignar el número oficial de una cotización solo al emitirla. Atómica ante concurrencia,
@@ -141,6 +145,35 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(f => f.IdAsientoContable).IsUnique();
             e.HasIndex(f => f.Fecha);
             e.HasIndex(f => f.NitProveedor);
+        });
+
+        modelBuilder.Entity<PartidaCartera>(e =>
+        {
+            e.HasIndex(p => new { p.IdDocumentoWorldOffice, p.CodigoCuenta }).IsUnique();
+            e.HasIndex(p => p.Nit);
+        });
+
+        modelBuilder.Entity<ClienteCartera>(e =>
+        {
+            e.HasIndex(c => c.Nit).IsUnique();
+        });
+
+        modelBuilder.Entity<EnvioCartera>(e =>
+        {
+            e.HasIndex(x => x.Nit);
+            e.HasIndex(x => x.Fecha);
+        });
+
+        modelBuilder.Entity<ConfiguracionCartera>().HasData(new ConfiguracionCartera
+        {
+            Id = 1,
+            Remitente = "cartera@ferrealiadosjv.com",
+            NombreRemitente = "Cartera FERREALIADOS JV",
+            Copias = "ventas@ferrealiadosjv.com; gerencia.comercial@jimaco.com.co",
+            SaldoMinimo = 10000m,
+            Asunto = ConfiguracionCarteraPorDefecto.Asunto,
+            Cuerpo = ConfiguracionCarteraPorDefecto.Cuerpo,
+            DatosPago = null
         });
 
         modelBuilder.HasSequence<int>(SecuenciaConsecutivoCotizacion, schema: "dbo")

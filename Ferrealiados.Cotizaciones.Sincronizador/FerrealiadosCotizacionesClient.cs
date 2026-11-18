@@ -29,6 +29,9 @@ public class FerrealiadosCotizacionesClient(HttpClient http, string email, strin
     public Task<SincronizacionFacturasCompraResultadoDto> SincronizarFacturasCompraAsync(SincronizacionFacturasCompraEntradaDto entrada, CancellationToken ct = default)
         => PostAsync<SincronizacionFacturasCompraResultadoDto>("api/conciliacion/facturas-compra", entrada, ct);
 
+    public Task<SincronizacionCarteraResultadoDto> SincronizarCarteraAsync(SincronizacionCarteraEntradaDto entrada, CancellationToken ct = default)
+        => PostAsync<SincronizacionCarteraResultadoDto>("api/cartera/sincronizar", entrada, ct);
+
     private async Task<T> PostAsync<T>(string ruta, object cuerpo, CancellationToken ct)
     {
         await AsegurarTokenAsync(ct);

@@ -47,6 +47,16 @@ Module that cross-checks the DIAN e-invoices (UBL 2.1 XML) arriving at `facturac
 - **Matching rules** (calibrated with real Oct-2026 data, see `ProyectosJimaco/ConciliacionFerrealiados/`): OC number in the XML's `OrderReference` first → same NIT + subtotal + IVA within ±100 pesos (WO stores prices typed with IVA and divided by 1.19, so 1–2 peso rounding is normal) in a window of 90 days before / 15 after the invoice → partial deliveries (an invoice that leaves ≥5% of an OC's balance) → `Diferencia` against the closest OC. Credit/debit notes (91/92) are stored but not matched.
 - **OC value = `SUM(Cantidad * MontoMonetarioUnitario)`, never `SUM(TotalRenglon)`** — in Ferrealiados' WO `TotalRenglon` carries a marked-up value (1.16–1.25× the cost). Invoice subtotal = `TaxExclusiveAmount` (already net of invoice-level discounts), not `LineExtensionAmount`. `Inventarios.Iva` is a fraction (0.19); the Sincronizador converts it to a percentage.
 
+## Cartera de clientes (estado de cuenta por correo)
+
+Module (`CarteraService`, `api/cartera`, role `Cartera` = 4, screen `/cartera`) that emails each client its statement of account and lists the remisiones not yet invoiced.
+
+- **Source:** the Sincronizador phase 1c reads `Vista_CuentasPorCobrar_Detallada` (WO's own view, abonos already applied) filtered to accounts `1305%` — the view also returns supplier advances (1330) and employee/partner loans (1325), which must stay out. It uploads the full set every run; the API makes `PartidasCartera` match exactly (insert/update/delete by `AbonaADocumento` + account).
+- **Remisiones live in cartera too** in Ferrealiados (account 13050502) and the FVE crosses them when invoiced (742 FVE→REM crossings confirmed in 2026), so a REM with balance = not invoiced yet. `EsRemision` (prefijo `REM` or document type containing "Remisión", e.g. the FVE-prefixed "Devolución de Remisión") separates them: they are never charged to the client, they go to the "Remisiones sin factura" tab.
+- **Collection emails are NOT WO's.** WO's Email 1/2/3 (`[Terceros - Direcciones]`) are the invoicing ones; they are stored only as reference (`ClientesCartera.CorreosWorldOffice`). The real recipients are `ClientesCartera.CorreosCobro`, edited in the app; the Sincronizador never touches them.
+- **Email:** body-only HTML (no PDF), built by the pure `CorreoCarteraBuilder` (preview = exactly what is sent). Sender, visible CC list, minimum balance, subject/body templates (`{cliente} {nit} {fechaCorte} {total} {vencido}`) and payment info live in the single-row `ConfiguracionCartera`, edited by Admin. SMTP host/user/password come from `Smtp__*` env vars (`.env` on the server) — never the DB. Bulk sends go one client per request from the browser with a 3 s pause (avoids proxy timeouts and the hosting's anti-spam).
+- Local testing: run Mailpit on the compose network and start the API with `SMTP_HOST=mailpit-cartera SMTP_PORT=1025` (non-465 ports use opportunistic STARTTLS).
+
 ## Commands
 
 ### Backend (.NET 10)
