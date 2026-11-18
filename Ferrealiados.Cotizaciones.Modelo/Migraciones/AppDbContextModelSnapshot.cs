@@ -893,6 +893,58 @@ namespace Ferrealiados.Cotizaciones.Modelo.Migraciones
                     b.ToTable("Proveedores");
                 });
 
+            modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.RemisionPendienteWorldOffice", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Facturado")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateOnly>("Fecha")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime>("FechaSincronizacion")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("IdAsientoContable")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Nit")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("NombreCliente")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<long>("Numero")
+                        .HasColumnType("bigint");
+
+                    b.Property<decimal>("Otros")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("Pagado")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("Valor")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdAsientoContable")
+                        .IsUnique();
+
+                    b.HasIndex("Nit");
+
+                    b.ToTable("RemisionesPendientesWorldOffice");
+                });
+
             modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.Usuario", b =>
                 {
                     b.Property<int>("Id")

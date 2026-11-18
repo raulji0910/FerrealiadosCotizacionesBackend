@@ -135,9 +135,20 @@ try
         Console.WriteLine($"[{DateTime.Now:s}] AVISO: no se pudieron leer los correos de los clientes en WO: {ex.Message}");
     }
 
-    var r = await api.SincronizarCarteraAsync(new SincronizacionCarteraEntradaDto(partidas, correosClientes));
-    Console.WriteLine($"[{DateTime.Now:s}] Cartera: {partidas.Count} partidas de {partidas.Select(p => p.Nit).Distinct().Count()} clientes " +
-                      $"({partidas.Count(p => p.Prefijo == "REM")} remisiones): {r.Nuevas} nuevas, {r.Actualizadas} actualizadas, {r.Eliminadas} eliminadas.");
+    IReadOnlyList<RemisionPendienteEntradaDto>? remisiones = null;
+    try
+    {
+        remisiones = await lector.ObtenerRemisionesPendientesAsync(cuenta);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[{DateTime.Now:s}] AVISO: no se pudieron leer las remisiones sin factura: {ex.Message}");
+    }
+
+    var r = await api.SincronizarCarteraAsync(new SincronizacionCarteraEntradaDto(partidas, correosClientes, remisiones));
+    Console.WriteLine($"[{DateTime.Now:s}] Cartera: {partidas.Count} partidas de {partidas.Select(p => p.Nit).Distinct().Count()} clientes: " +
+                      $"{r.Nuevas} nuevas, {r.Actualizadas} actualizadas, {r.Eliminadas} eliminadas. " +
+                      (remisiones is null ? "Remisiones sin factura: no se actualizaron." : $"Remisiones sin factura: {r.RemisionesPendientes}."));
 }
 catch (Exception ex)
 {

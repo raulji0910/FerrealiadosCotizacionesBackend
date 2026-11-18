@@ -18,11 +18,25 @@ public record PartidaCarteraEntradaDto(
 // facturación, se guardan solo como referencia.
 public record CorreosClienteWorldOfficeDto(string Nit, string Nombre, IReadOnlyList<string> Correos);
 
+// Remisión con algo por facturar, con lo que le abonaron facturas, recibos de caja y otros documentos.
+public record RemisionPendienteEntradaDto(
+    int IdAsientoContable,
+    long Numero,
+    DateOnly Fecha,
+    string Nit,
+    string NombreCliente,
+    decimal Valor,
+    decimal Facturado,
+    decimal Pagado,
+    decimal Otros);
+
+// Remisiones es null cuando la consulta falló (o un Sincronizador viejo): entonces no se tocan.
 public record SincronizacionCarteraEntradaDto(
     IReadOnlyList<PartidaCarteraEntradaDto> Partidas,
-    IReadOnlyList<CorreosClienteWorldOfficeDto>? CorreosClientes);
+    IReadOnlyList<CorreosClienteWorldOfficeDto>? CorreosClientes,
+    IReadOnlyList<RemisionPendienteEntradaDto>? Remisiones = null);
 
-public record SincronizacionCarteraResultadoDto(int Nuevas, int Actualizadas, int Eliminadas, int Clientes);
+public record SincronizacionCarteraResultadoDto(int Nuevas, int Actualizadas, int Eliminadas, int Clientes, int RemisionesPendientes = 0);
 
 // ---- Pantalla ----
 
@@ -110,15 +124,19 @@ public record CorreoCarteraDto(
 
 public record ResultadoEnvioCarteraDto(string Nit, string NombreCliente, bool Enviado, string? Motivo);
 
+// PendienteFacturar = Valor - Facturado - Otros. PagadaSinFactura: un recibo de caja le abonó
+// directamente (el cliente pagó algo que no tiene factura electrónica).
 public record RemisionSinFacturaDto(
     string Nit,
     string NombreCliente,
-    string TipoDocumento,
-    string Prefijo,
     long Numero,
     DateOnly Fecha,
     int DiasSinFacturar,
-    decimal Saldo);
+    decimal Valor,
+    decimal Facturado,
+    decimal Pagado,
+    decimal PendienteFacturar,
+    bool PagadaSinFactura);
 
 public record ConfiguracionCarteraDto(
     string Remitente,

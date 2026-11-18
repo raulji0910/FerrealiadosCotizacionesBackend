@@ -46,6 +46,45 @@ public class PartidaCartera
     public DateTime FechaSincronizacion { get; set; }
 }
 
+// Remisión de World Office que todavía tiene algo por facturar. No sale del saldo de cartera (un
+// recibo de caja contra la remisión la deja en cero sin que se haya facturado) sino de lo que le
+// abonaron las facturas: Pendiente = Valor - Facturado - Otros. Pagado = lo que abonaron recibos de
+// caja directamente a la remisión ("pagada sin factura"). La sube el Sincronizador completa en cada
+// corrida (solo las que tienen pendiente). Identidad: IdAsientoContable de WO.
+public class RemisionPendienteWorldOffice
+{
+    public int Id { get; set; }
+
+    public int IdAsientoContable { get; set; }
+
+    public long Numero { get; set; }
+
+    public DateOnly Fecha { get; set; }
+
+    [MaxLength(20)]
+    public required string Nit { get; set; }
+
+    [MaxLength(300)]
+    public required string NombreCliente { get; set; }
+
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal Valor { get; set; }
+
+    // Abonado por facturas (FVE), incluida la devolución de remisión que WO registra con ese prefijo.
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal Facturado { get; set; }
+
+    // Abonado por recibos de caja (RC) directamente a la remisión, sin factura de por medio.
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal Pagado { get; set; }
+
+    // Abonado por otros documentos (notas, cruces entre remisiones…).
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal Otros { get; set; }
+
+    public DateTime FechaSincronizacion { get; set; }
+}
+
 // Cliente de la cartera: nombre y correos que trae World Office (son los de facturación, solo de
 // referencia) + los datos de cobro que se manejan en la app. Los correos de cobro van separados
 // por ";". Los datos de cobro nunca los toca el Sincronizador.

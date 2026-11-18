@@ -22,6 +22,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ClienteCartera> ClientesCartera => Set<ClienteCartera>();
     public DbSet<EnvioCartera> EnviosCartera => Set<EnvioCartera>();
     public DbSet<ConfiguracionCartera> ConfiguracionCartera => Set<ConfiguracionCartera>();
+    public DbSet<RemisionPendienteWorldOffice> RemisionesPendientesWorldOffice => Set<RemisionPendienteWorldOffice>();
 
     // Consumida vía "SELECT NEXT VALUE FOR dbo.SecuenciaConsecutivoCotizacion" (IConsecutivoCotizacionProvider)
     // para asignar el número oficial de una cotización solo al emitirla. Atómica ante concurrencia,
@@ -151,6 +152,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.HasIndex(p => new { p.IdDocumentoWorldOffice, p.CodigoCuenta }).IsUnique();
             e.HasIndex(p => p.Nit);
+        });
+
+        modelBuilder.Entity<RemisionPendienteWorldOffice>(e =>
+        {
+            e.HasIndex(r => r.IdAsientoContable).IsUnique();
+            e.HasIndex(r => r.Nit);
         });
 
         modelBuilder.Entity<ClienteCartera>(e =>

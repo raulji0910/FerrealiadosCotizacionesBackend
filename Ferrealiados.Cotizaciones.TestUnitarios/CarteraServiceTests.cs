@@ -234,19 +234,48 @@ public class CarteraServiceTests
         Assert.Equal("pagos@uno.com", (await db.ClientesCartera.SingleAsync(c => c.Nit == "900")).CorreosCobro);
     }
 
+    private static RemisionPendienteEntradaDto Rem(int id, decimal valor, decimal facturado = 0, decimal pagado = 0, decimal otros = 0,
+        string fecha = "2026-10-09")
+        => new(id, id, DateOnly.Parse(fecha), "900", "CLIENTE  UNO SAS", valor, facturado, pagado, otros);
+
     [Fact]
-    public async Task RemisionesSinFactura_TraeSoloRemisionesConSusDias()
+    public async Task RemisionesSinFactura_PendienteEsValorMenosLoFacturado_YMarcaLasPagadasSinFactura()
     {
         using var db = CrearContexto();
-        await CrearServicio(db).SincronizarAsync(Entrada(
-            Partida(1, "900", 100m, "2026-11-01"),
-            Partida(2, "900", 500m, "2026-11-08", prefijo: "REM", tipo: "Remisión")));
+        await CrearServicio(db).SincronizarAsync(new SincronizacionCarteraEntradaDto([], null, [
+            Rem(1, 500m),                                  // sin facturar
+            Rem(2, 2932625m, facturado: 2526097m),         // facturada en parte
+            Rem(3, 1019985m, pagado: 989094m),             // pagada casi completa, sin factura
+            Rem(4, 300m, facturado: 299.5m),               // redondeo: no se muestra
+            Rem(5, 800m, otros: 800m)                      // anulada por nota: no se muestra
+        ]));
 
         var remisiones = await CrearServicio(db).ObtenerRemisionesSinFacturaAsync();
 
-        var rem = Assert.Single(remisiones);
-        Assert.Equal(2, rem.Numero);
-        Assert.Equal(40, rem.DiasSinFacturar); // fecha 09/10 → 18/11
+        Assert.Equal([1L, 2L, 3L], remisiones.Select(r => r.Numero));
+        Assert.Equal(40, remisiones[0].DiasSinFacturar); // 09/10 → 18/11
+        Assert.Equal(406528m, remisiones[1].PendienteFacturar);
+        Assert.False(remisiones[1].PagadaSinFactura);
+        Assert.Equal(1019985m, remisiones[2].PendienteFacturar); // lo pagado no la da por facturada
+        Assert.True(remisiones[2].PagadaSinFactura);
+        Assert.Equal("CLIENTE UNO SAS", remisiones[0].NombreCliente);
+    }
+
+    [Fact]
+    public async Task RemisionesSinFactura_SeQuitanAlFacturarse_YNoSeTocanSiLaConsultaFallo()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        await servicio.SincronizarAsync(new SincronizacionCarteraEntradaDto([], null, [Rem(1, 500m), Rem(2, 700m)]));
+
+        // Corrida sin remisiones (la consulta falló): se dejan como estaban.
+        await servicio.SincronizarAsync(new SincronizacionCarteraEntradaDto([], null, null));
+        Assert.Equal(2, (await servicio.ObtenerRemisionesSinFacturaAsync()).Count);
+
+        // La 1 se facturó completa: ya no viene.
+        var r = await servicio.SincronizarAsync(new SincronizacionCarteraEntradaDto([], null, [Rem(2, 700m)]));
+        Assert.Equal(1, r.RemisionesPendientes);
+        Assert.Equal([2L], (await servicio.ObtenerRemisionesSinFacturaAsync()).Select(x => x.Numero));
     }
 
     [Fact]

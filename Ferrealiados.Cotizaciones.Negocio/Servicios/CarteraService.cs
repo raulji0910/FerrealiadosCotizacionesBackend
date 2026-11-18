@@ -77,10 +77,55 @@ public class CarteraService(AppDbContext db, IEnviadorCorreo enviador, TimeProvi
         }
 
         var clientes = await SincronizarClientesAsync(entrada, ct);
+        var remisiones = entrada.Remisiones is null ? 0 : await SincronizarRemisionesAsync(entrada.Remisiones, ahora, ct);
         await GuardarUltimaSincronizacionAsync(ahora, ct);
         await db.SaveChangesAsync(ct);
 
-        return new SincronizacionCarteraResultadoDto(creadas, actualizadas, eliminadas, clientes);
+        return new SincronizacionCarteraResultadoDto(creadas, actualizadas, eliminadas, clientes, remisiones);
+    }
+
+    // Deja la tabla igual a lo que manda WO: solo remisiones con algo por facturar (más de $1, lo
+    // demás son redondeos). Devuelve cuántas quedaron pendientes.
+    private async Task<int> SincronizarRemisionesAsync(IReadOnlyList<RemisionPendienteEntradaDto> remisiones, DateTime ahora, CancellationToken ct)
+    {
+        var nuevas = remisiones
+            .Where(r => r.Valor - r.Facturado - r.Otros > 1m && NormalizarNit(r.Nit).Length > 0)
+            .GroupBy(r => r.IdAsientoContable)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        foreach (var existente in await db.RemisionesPendientesWorldOffice.ToListAsync(ct))
+        {
+            if (!nuevas.Remove(existente.IdAsientoContable, out var dto))
+            {
+                db.RemisionesPendientesWorldOffice.Remove(existente);
+                continue;
+            }
+            Copiar(dto, existente);
+            if (db.Entry(existente).State == EntityState.Modified)
+                existente.FechaSincronizacion = ahora;
+        }
+
+        foreach (var dto in nuevas.Values)
+        {
+            var remision = new RemisionPendienteWorldOffice { Nit = "", NombreCliente = "", FechaSincronizacion = ahora };
+            Copiar(dto, remision);
+            db.RemisionesPendientesWorldOffice.Add(remision);
+        }
+
+        return remisiones.Count(r => r.Valor - r.Facturado - r.Otros > 1m && NormalizarNit(r.Nit).Length > 0);
+    }
+
+    private static void Copiar(RemisionPendienteEntradaDto dto, RemisionPendienteWorldOffice remision)
+    {
+        remision.IdAsientoContable = dto.IdAsientoContable;
+        remision.Numero = dto.Numero;
+        remision.Fecha = dto.Fecha;
+        remision.Nit = Truncar(NormalizarNit(dto.Nit), 20);
+        remision.NombreCliente = Truncar(NormalizarNombre(dto.NombreCliente), 300);
+        remision.Valor = Math.Round(dto.Valor, 2);
+        remision.Facturado = Math.Round(dto.Facturado, 2);
+        remision.Pagado = Math.Round(dto.Pagado, 2);
+        remision.Otros = Math.Round(dto.Otros, 2);
     }
 
     private static void Copiar(PartidaCarteraEntradaDto dto, PartidaCartera partida)
@@ -416,21 +461,23 @@ public class CarteraService(AppDbContext db, IEnviadorCorreo enviador, TimeProvi
     public async Task<IReadOnlyList<RemisionSinFacturaDto>> ObtenerRemisionesSinFacturaAsync(CancellationToken ct = default)
     {
         var hoy = Hoy();
-        var remisiones = await db.PartidasCartera.AsNoTracking().Where(p => p.EsRemision).ToListAsync(ct);
+        var remisiones = await db.RemisionesPendientesWorldOffice.AsNoTracking().ToListAsync(ct);
         var nombres = await db.ClientesCartera.AsNoTracking().ToDictionaryAsync(c => c.Nit, c => c.Nombre, ct);
 
         return remisiones
-            .OrderBy(p => p.Fecha)
-            .ThenBy(p => p.Numero)
-            .Select(p => new RemisionSinFacturaDto(
-                p.Nit,
-                nombres.GetValueOrDefault(p.Nit) ?? p.NombreCliente,
-                p.TipoDocumento,
-                p.Prefijo,
-                p.Numero,
-                p.Fecha,
-                Math.Max(0, hoy.DayNumber - p.Fecha.DayNumber),
-                p.Saldo))
+            .OrderBy(r => r.Fecha)
+            .ThenBy(r => r.Numero)
+            .Select(r => new RemisionSinFacturaDto(
+                r.Nit,
+                nombres.GetValueOrDefault(r.Nit) ?? r.NombreCliente,
+                r.Numero,
+                r.Fecha,
+                Math.Max(0, hoy.DayNumber - r.Fecha.DayNumber),
+                r.Valor,
+                r.Facturado,
+                r.Pagado,
+                r.Valor - r.Facturado - r.Otros,
+                r.Pagado > 1m))
             .ToList();
     }
 

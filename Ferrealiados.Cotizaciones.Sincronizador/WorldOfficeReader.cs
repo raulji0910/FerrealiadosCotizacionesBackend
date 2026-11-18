@@ -174,6 +174,62 @@ public class WorldOfficeReader(string connectionString)
             .ToList();
     }
 
+    private record RemisionRow(int IdAsientoContable, decimal? Numero, DateTime? Fecha, string? Identificacion, string? Nombre,
+        string? Apellidos, decimal? Valor, decimal? Facturado, decimal? Pagado, decimal? Otros);
+
+    /// <summary>
+    /// Remisiones con algo por facturar. No se mira el saldo de cartera (un recibo de caja contra la
+    /// remisión la deja en cero sin factura): se suma, sobre la cartera de clientes, lo que cada
+    /// documento le abonó a la REM vía AbonaADocumento — el propio renglón de la REM se
+    /// autorreferencia y da el valor; FVE = facturado; RC = pagado sin factura; el resto = otros.
+    /// Confirmado con la consulta 12 de la exploración (2026-11-18).
+    /// </summary>
+    public async Task<IReadOnlyList<RemisionPendienteEntradaDto>> ObtenerRemisionesPendientesAsync(string prefijoCuenta, CancellationToken ct = default)
+    {
+        const string sql = """
+            SELECT
+                o.IdAsientoContable,
+                MIN(o.DocumentoNúmero)            AS Numero,
+                MIN(o.Fecha)                      AS Fecha,
+                MIN(LTRIM(RTRIM(t.Identificacion))) AS Identificacion,
+                MIN(t.Nombre)                     AS Nombre,
+                MIN(t.Apellidos)                  AS Apellidos,
+                SUM(CASE WHEN a.IdAsientoContable = o.IdAsientoContable THEN d.Débito - d.Crédito ELSE 0 END) AS Valor,
+                SUM(CASE WHEN a.IdAsientoContable <> o.IdAsientoContable AND a.prefijo = 'FVE' THEN d.Crédito - d.Débito ELSE 0 END) AS Facturado,
+                SUM(CASE WHEN a.IdAsientoContable <> o.IdAsientoContable AND a.prefijo = 'RC'  THEN d.Crédito - d.Débito ELSE 0 END) AS Pagado,
+                SUM(CASE WHEN a.IdAsientoContable <> o.IdAsientoContable AND a.prefijo NOT IN ('FVE', 'RC') THEN d.Crédito - d.Débito ELSE 0 END) AS Otros
+            FROM [CuentasContables - Asientos - Detalles] d
+            JOIN [CuentasContables - Asientos] a   ON a.IdAsientoContable = d.IdAsientoContable
+            JOIN [CuentasContables - Asientos - Detalles] dor ON dor.IdDocumentoDetalle = d.AbonaADocumento
+            JOIN [CuentasContables - Asientos] o   ON o.IdAsientoContable = dor.IdAsientoContable
+            JOIN Terceros t ON t.IdTercero = d.IdTercero
+            WHERE o.prefijo = 'REM'
+              AND (a.senAnulado = 0 OR a.senAnulado IS NULL)
+              AND (o.senAnulado = 0 OR o.senAnulado IS NULL)
+              AND d.IdCuentaContable IN (SELECT IdCuentaContable FROM CuentasContables WHERE CódigoCuentaContable LIKE @Cuenta)
+            GROUP BY o.IdAsientoContable
+            HAVING SUM(CASE WHEN a.IdAsientoContable = o.IdAsientoContable THEN d.Débito - d.Crédito ELSE 0 END)
+                 - SUM(CASE WHEN a.IdAsientoContable <> o.IdAsientoContable AND a.prefijo <> 'RC' THEN d.Crédito - d.Débito ELSE 0 END) > 1;
+            """;
+
+        await using var conexion = new SqlConnection(connectionString);
+        var filas = await conexion.QueryAsync<RemisionRow>(new CommandDefinition(sql, new { Cuenta = prefijoCuenta + "%" }, cancellationToken: ct));
+
+        return filas
+            .Where(f => !string.IsNullOrWhiteSpace(f.Identificacion))
+            .Select(f => new RemisionPendienteEntradaDto(
+                f.IdAsientoContable,
+                (long)(f.Numero ?? 0m),
+                DateOnly.FromDateTime(f.Fecha ?? DateTime.Today),
+                f.Identificacion!.Trim(),
+                $"{f.Nombre} {f.Apellidos}".Trim(),
+                f.Valor ?? 0m,
+                f.Facturado ?? 0m,
+                f.Pagado ?? 0m,
+                f.Otros ?? 0m))
+            .ToList();
+    }
+
     /// <summary>
     /// Email 1/2/3 de las direcciones de los clientes en WO (<c>[Terceros - Direcciones]</c>). Son los
     /// de facturación: la app los muestra solo como referencia para armar los contactos de cobro.
