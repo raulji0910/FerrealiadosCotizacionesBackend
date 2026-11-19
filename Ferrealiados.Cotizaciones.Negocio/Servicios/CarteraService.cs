@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Ferrealiados.Cotizaciones.Modelo;
 using Ferrealiados.Cotizaciones.Modelo.Entidades;
 using Ferrealiados.Cotizaciones.Negocio.Cartera;
@@ -126,6 +127,32 @@ public class CarteraService(AppDbContext db, IEnviadorCorreo enviador, TimeProvi
         remision.Facturado = Math.Round(dto.Facturado, 2);
         remision.Pagado = Math.Round(dto.Pagado, 2);
         remision.Otros = Math.Round(dto.Otros, 2);
+        // Si el Sincronizador no mandó la lista (versión vieja), se deja la que había.
+        if (dto.Abonos is not null)
+        {
+            var abonos = dto.Abonos
+                .Where(a => Math.Abs(a.Valor) >= 0.5m)
+                .OrderBy(a => a.Fecha)
+                .ThenBy(a => a.Numero)
+                .Select(a => a with { Prefijo = a.Prefijo.Trim(), Valor = Math.Round(a.Valor, 2) })
+                .ToList();
+            remision.AbonosJson = abonos.Count > 0 ? JsonSerializer.Serialize(abonos, JsonAbonos) : null;
+        }
+    }
+
+    private static readonly JsonSerializerOptions JsonAbonos = new(JsonSerializerDefaults.Web);
+
+    private static IReadOnlyList<AbonoRemisionDto> LeerAbonos(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            return JsonSerializer.Deserialize<List<AbonoRemisionDto>>(json, JsonAbonos) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
     }
 
     private static void Copiar(PartidaCarteraEntradaDto dto, PartidaCartera partida)
@@ -477,7 +504,8 @@ public class CarteraService(AppDbContext db, IEnviadorCorreo enviador, TimeProvi
                 r.Facturado,
                 r.Pagado,
                 r.Valor - r.Facturado - r.Otros,
-                r.Pagado > 1m))
+                r.Pagado > 1m,
+                LeerAbonos(r.AbonosJson)))
             .ToList();
     }
 

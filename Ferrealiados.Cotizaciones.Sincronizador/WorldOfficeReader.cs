@@ -212,8 +212,33 @@ public class WorldOfficeReader(string connectionString)
                  - SUM(CASE WHEN a.IdAsientoContable <> o.IdAsientoContable AND a.prefijo <> 'RC' THEN d.Crédito - d.Débito ELSE 0 END) > 1;
             """;
 
+        // Qué documento le abonó a cada remisión pendiente y cuánto (el detalle que se ve al hacer clic).
+        const string sqlAbonos = """
+            SELECT
+                o.IdAsientoContable               AS IdRemision,
+                a.prefijo                         AS Prefijo,
+                MIN(a.DocumentoNúmero)            AS Numero,
+                MIN(a.Fecha)                      AS Fecha,
+                SUM(d.Crédito - d.Débito)         AS Valor
+            FROM [CuentasContables - Asientos - Detalles] d
+            JOIN [CuentasContables - Asientos] a   ON a.IdAsientoContable = d.IdAsientoContable
+            JOIN [CuentasContables - Asientos - Detalles] dor ON dor.IdDocumentoDetalle = d.AbonaADocumento
+            JOIN [CuentasContables - Asientos] o   ON o.IdAsientoContable = dor.IdAsientoContable
+            WHERE o.IdAsientoContable IN @Ids
+              AND a.IdAsientoContable <> o.IdAsientoContable
+              AND (a.senAnulado = 0 OR a.senAnulado IS NULL)
+              AND d.IdCuentaContable IN (SELECT IdCuentaContable FROM CuentasContables WHERE CódigoCuentaContable LIKE @Cuenta)
+            GROUP BY o.IdAsientoContable, a.IdAsientoContable, a.prefijo;
+            """;
+
         await using var conexion = new SqlConnection(connectionString);
-        var filas = await conexion.QueryAsync<RemisionRow>(new CommandDefinition(sql, new { Cuenta = prefijoCuenta + "%" }, cancellationToken: ct));
+        var filas = (await conexion.QueryAsync<RemisionRow>(new CommandDefinition(sql, new { Cuenta = prefijoCuenta + "%" }, cancellationToken: ct))).ToList();
+
+        var abonos = filas.Count == 0
+            ? Enumerable.Empty<AbonoRow>().ToLookup(x => x.IdRemision)
+            : (await conexion.QueryAsync<AbonoRow>(new CommandDefinition(sqlAbonos,
+                    new { Ids = filas.Select(f => f.IdAsientoContable).ToArray(), Cuenta = prefijoCuenta + "%" }, cancellationToken: ct)))
+                .ToLookup(x => x.IdRemision);
 
         return filas
             .Where(f => !string.IsNullOrWhiteSpace(f.Identificacion))
@@ -226,9 +251,18 @@ public class WorldOfficeReader(string connectionString)
                 f.Valor ?? 0m,
                 f.Facturado ?? 0m,
                 f.Pagado ?? 0m,
-                f.Otros ?? 0m))
+                f.Otros ?? 0m,
+                abonos[f.IdAsientoContable]
+                    .Select(x => new AbonoRemisionDto(
+                        x.Prefijo?.Trim() ?? "",
+                        (long)(x.Numero ?? 0m),
+                        DateOnly.FromDateTime(x.Fecha ?? DateTime.Today),
+                        x.Valor ?? 0m))
+                    .ToList()))
             .ToList();
     }
+
+    private record AbonoRow(int IdRemision, string? Prefijo, decimal? Numero, DateTime? Fecha, decimal? Valor);
 
     /// <summary>
     /// Email 1/2/3 de las direcciones de los clientes en WO (<c>[Terceros - Direcciones]</c>). Son los

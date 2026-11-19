@@ -901,6 +901,9 @@ namespace Ferrealiados.Cotizaciones.Modelo.Migraciones
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("AbonosJson")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<decimal>("Facturado")
                         .HasColumnType("decimal(18,2)");
 

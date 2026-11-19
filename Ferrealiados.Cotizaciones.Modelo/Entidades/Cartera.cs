@@ -82,6 +82,10 @@ public class RemisionPendienteWorldOffice
     [Column(TypeName = "decimal(18,2)")]
     public decimal Otros { get; set; }
 
+    // Documentos que le abonaron (FVE, RC, notas) con su número, fecha y valor, en JSON: solo se
+    // muestran en el detalle, nunca se consultan por dentro.
+    public string? AbonosJson { get; set; }
+
     public DateTime FechaSincronizacion { get; set; }
 }
 

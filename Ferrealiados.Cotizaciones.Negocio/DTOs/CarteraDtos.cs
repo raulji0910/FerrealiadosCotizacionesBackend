@@ -18,7 +18,11 @@ public record PartidaCarteraEntradaDto(
 // facturación, se guardan solo como referencia.
 public record CorreosClienteWorldOfficeDto(string Nit, string Nombre, IReadOnlyList<string> Correos);
 
-// Remisión con algo por facturar, con lo que le abonaron facturas, recibos de caja y otros documentos.
+// Un documento de WO (FVE, RC, nota…) que le abonó a una remisión, con lo que le abonó.
+public record AbonoRemisionDto(string Prefijo, long Numero, DateOnly Fecha, decimal Valor);
+
+// Remisión con algo por facturar, con lo que le abonaron facturas, recibos de caja y otros documentos
+// (y cuáles fueron, para el detalle).
 public record RemisionPendienteEntradaDto(
     int IdAsientoContable,
     long Numero,
@@ -28,7 +32,8 @@ public record RemisionPendienteEntradaDto(
     decimal Valor,
     decimal Facturado,
     decimal Pagado,
-    decimal Otros);
+    decimal Otros,
+    IReadOnlyList<AbonoRemisionDto>? Abonos = null);
 
 // Remisiones es null cuando la consulta falló (o un Sincronizador viejo): entonces no se tocan.
 public record SincronizacionCarteraEntradaDto(
@@ -136,7 +141,8 @@ public record RemisionSinFacturaDto(
     decimal Facturado,
     decimal Pagado,
     decimal PendienteFacturar,
-    bool PagadaSinFactura);
+    bool PagadaSinFactura,
+    IReadOnlyList<AbonoRemisionDto> Abonos);
 
 public record ConfiguracionCarteraDto(
     string Remitente,

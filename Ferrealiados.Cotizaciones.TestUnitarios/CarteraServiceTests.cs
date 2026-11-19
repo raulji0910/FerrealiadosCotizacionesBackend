@@ -262,6 +262,26 @@ public class CarteraServiceTests
     }
 
     [Fact]
+    public async Task RemisionesSinFactura_TraeLasFacturasYRecibosQueLeAbonaron()
+    {
+        using var db = CrearContexto();
+        var abonos = new[]
+        {
+            new AbonoRemisionDto("RC ", 58, new DateOnly(2026, 11, 2), 100000m),
+            new AbonoRemisionDto("FVE", 2210, new DateOnly(2026, 10, 20), 2526097m),
+            new AbonoRemisionDto("FVE", 2300, new DateOnly(2026, 10, 25), 0.2m) // redondeo: no se muestra
+        };
+        await CrearServicio(db).SincronizarAsync(new SincronizacionCarteraEntradaDto([], null,
+            [Rem(654, 2932625m, facturado: 2526097m, pagado: 100000m) with { Abonos = abonos }]));
+
+        var detalle = Assert.Single(await CrearServicio(db).ObtenerRemisionesSinFacturaAsync()).Abonos;
+
+        Assert.Equal(
+            [new AbonoRemisionDto("FVE", 2210, new DateOnly(2026, 10, 20), 2526097m), new AbonoRemisionDto("RC", 58, new DateOnly(2026, 11, 2), 100000m)],
+            detalle);
+    }
+
+    [Fact]
     public async Task RemisionesSinFactura_SeQuitanAlFacturarse_YNoSeTocanSiLaConsultaFallo()
     {
         using var db = CrearContexto();
