@@ -2,7 +2,9 @@ using Ferrealiados.Cotizaciones.Modelo;
 using Ferrealiados.Cotizaciones.Negocio.Cartera;
 using Ferrealiados.Cotizaciones.Negocio.DTOs;
 using Ferrealiados.Cotizaciones.Negocio.Servicios;
+using MailKit.Security;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Ferrealiados.Cotizaciones.TestUnitarios;
 
@@ -14,8 +16,22 @@ public class CarteraServiceTests
     private static AppDbContext CrearContexto()
         => new(new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
 
-    private static CarteraService CrearServicio(AppDbContext db, EnviadorFalso? enviador = null)
-        => new(db, enviador ?? new EnviadorFalso(), new TiempoFijo(AhoraUtc));
+    // Llave de prueba (32 bytes en base64), solo para estos tests.
+    private const string LlavePrueba = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
+
+    // Por defecto, como si el .env trajera SMTP_PASSWORD (los tests de envío no dependen de la clave).
+    private static readonly SmtpOptions SmtpConClaveDelServidor = new()
+        { Host = "smtp.prueba", Puerto = 465, Usuario = "cartera@ferrealiadosjv.com", Password = "clave-del-env" };
+
+    private static readonly SmtpOptions SmtpSinClave = new() { Host = "smtp.prueba", Puerto = 465 };
+
+    private static CarteraService CrearServicio(AppDbContext db, EnviadorFalso? enviador = null, SmtpOptions? smtp = null, string? llave = LlavePrueba)
+        => new(
+            db,
+            enviador ?? new EnviadorFalso(),
+            Options.Create(smtp ?? SmtpConClaveDelServidor),
+            new CifradorSecretosAes(Options.Create(new CifradoOptions { Clave = llave })),
+            new TiempoFijo(AhoraUtc));
 
     private static PartidaCarteraEntradaDto Partida(int id, string nit, decimal saldo, string vencimiento,
         string prefijo = "FVE", string tipo = "Factura de Venta", string nombre = "CLIENTE UNO SAS", long numero = 0)
@@ -337,16 +353,159 @@ public class CarteraServiceTests
         Assert.Equal(["302", "4226878", "@x"], invalidos);
     }
 
+    // ---------------- Clave del correo remitente ----------------
+
+    private static async Task<CarteraService> ConClienteParaEnviar(AppDbContext db, EnviadorFalso enviador, SmtpOptions smtp)
+    {
+        var servicio = CrearServicio(db, enviador, smtp);
+        await servicio.SincronizarAsync(Entrada(Partida(1, "900", 50000m, "2026-11-01")));
+        await servicio.ActualizarContactoAsync("900", new ContactoCobroDto("pagos@uno.com", null, null));
+        return servicio;
+    }
+
+    [Fact]
+    public async Task Enviar_SinClaveDelCorreo_AvisaYNoRegistra()
+    {
+        using var db = CrearContexto();
+        var enviador = new EnviadorFalso();
+        var servicio = await ConClienteParaEnviar(db, enviador, SmtpSinClave);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => servicio.EnviarAsync("900", "yo"));
+
+        Assert.Contains("Configuración", ex.Message);
+        Assert.Empty(enviador.Enviados);
+        Assert.Empty(db.EnviosCartera);
+        Assert.False((await servicio.ObtenerConfiguracionAsync()).ServidorCorreoConfigurado);
+    }
+
+    [Fact]
+    public async Task GuardarClave_SeCompruebaSeGuardaCifradaYSeUsaParaEnviar()
+    {
+        using var db = CrearContexto();
+        var enviador = new EnviadorFalso { ClaveCorrecta = "Clave-Real.2026" };
+        var servicio = await ConClienteParaEnviar(db, enviador, SmtpSinClave);
+
+        var config = await servicio.GuardarClaveCorreoAsync("Clave-Real.2026", "admin@ferrealiados.local");
+
+        Assert.True(config.ServidorCorreoConfigurado);
+        Assert.Equal("Aplicacion", config.OrigenClaveCorreo);
+        Assert.Equal("admin@ferrealiados.local", config.ClaveCorreoActualizadaPor);
+        Assert.Equal(AhoraUtc, config.ClaveCorreoActualizada);
+
+        var guardada = await db.ConfiguracionCartera.SingleAsync();
+        Assert.NotNull(guardada.ClaveCorreoCifrada);
+        Assert.DoesNotContain("Clave-Real", guardada.ClaveCorreoCifrada);
+        Assert.Equal("cartera@ferrealiadosjv.com", guardada.ClaveCorreoCuenta);
+
+        Assert.True((await servicio.EnviarAsync("900", "yo"))!.Enviado);
+        var usadas = enviador.Credenciales.Last();
+        Assert.Equal(("smtp.prueba", 465, "cartera@ferrealiadosjv.com", "Clave-Real.2026"),
+            (usadas.Host, usadas.Puerto, usadas.Usuario, usadas.Password));
+    }
+
+    [Fact]
+    public async Task GuardarClave_SiElServidorLaRechaza_NoSeGuarda()
+    {
+        using var db = CrearContexto();
+        var servicio = await ConClienteParaEnviar(db, new EnviadorFalso { ClaveCorrecta = "buena" }, SmtpSinClave);
+
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => servicio.GuardarClaveCorreoAsync("mala", "yo"));
+
+        Assert.Contains("rechazó", ex.Message);
+        Assert.Null((await db.ConfiguracionCartera.FirstOrDefaultAsync())?.ClaveCorreoCifrada);
+    }
+
+    [Fact]
+    public async Task GuardarClave_SinLlaveDeCifradoEnElServidor_Avisa()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db, new EnviadorFalso(), SmtpSinClave, llave: null);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => servicio.GuardarClaveCorreoAsync("x", "yo"));
+
+        Assert.Contains("CIFRADO_CLAVE", ex.Message);
+    }
+
+    [Fact]
+    public async Task ClaveDelEnv_TienePrioridadSobreLaGuardada()
+    {
+        using var db = CrearContexto();
+        var enviador = new EnviadorFalso();
+        await CrearServicio(db, enviador, SmtpSinClave).GuardarClaveCorreoAsync("guardada", "yo");
+        var servicio = await ConClienteParaEnviar(db, enviador, SmtpConClaveDelServidor);
+
+        Assert.Equal("Servidor", (await servicio.ObtenerConfiguracionAsync()).OrigenClaveCorreo);
+        await servicio.EnviarAsync("900", "yo");
+        Assert.Equal("clave-del-env", enviador.Credenciales.Last().Password);
+    }
+
+    [Fact]
+    public async Task SiCambianElRemitente_LaClaveGuardadaDejaDeUsarse()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db, new EnviadorFalso(), SmtpSinClave);
+        await servicio.GuardarClaveCorreoAsync("clave", "yo");
+        var actual = await servicio.ObtenerConfiguracionAsync();
+
+        var config = await servicio.ActualizarConfiguracionAsync(actual with { Remitente = "cobros@ferrealiadosjv.com" });
+
+        Assert.False(config.ServidorCorreoConfigurado);
+        Assert.Equal("cartera@ferrealiadosjv.com", config.ClaveCorreoDeOtraCuenta);
+        var prueba = await servicio.ProbarCorreoAsync();
+        Assert.False(prueba.Exitosa);
+        Assert.Contains("cobros@ferrealiadosjv.com", prueba.Mensaje);
+    }
+
+    [Fact]
+    public async Task ProbarCorreo_InformaSiLaClaveSirve()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db, new EnviadorFalso(), SmtpSinClave);
+        Assert.False((await servicio.ProbarCorreoAsync()).Exitosa);
+
+        await servicio.GuardarClaveCorreoAsync("clave", "yo");
+
+        var prueba = await servicio.ProbarCorreoAsync();
+        Assert.True(prueba.Exitosa);
+        Assert.Contains("cartera@ferrealiadosjv.com", prueba.Mensaje);
+    }
+
+    [Fact]
+    public void Cifrador_DescifraSoloConLaMismaLlave()
+    {
+        var cifrador = new CifradorSecretosAes(Options.Create(new CifradoOptions { Clave = LlavePrueba }));
+        var otra = new CifradorSecretosAes(Options.Create(new CifradoOptions { Clave = Convert.ToBase64String(new byte[32]) }));
+
+        var cifrado = cifrador.Cifrar("Ñandú#2026");
+
+        Assert.NotEqual(cifrado, cifrador.Cifrar("Ñandú#2026"));
+        Assert.Equal("Ñandú#2026", cifrador.Descifrar(cifrado));
+        Assert.Null(otra.Descifrar(cifrado));
+        Assert.False(new CifradorSecretosAes(Options.Create(new CifradoOptions { Clave = "corta" })).EstaDisponible);
+    }
+
     private sealed class EnviadorFalso : IEnviadorCorreo
     {
         public List<CorreoSaliente> Enviados { get; } = [];
+        public List<CredencialesSmtp> Credenciales { get; } = [];
         public Exception? Error { get; init; }
-        public bool EstaConfigurado => true;
 
-        public Task EnviarAsync(CorreoSaliente correo, CancellationToken ct = default)
+        // Clave que el "servidor de correo" acepta en ProbarAsync (null = acepta cualquiera).
+        public string? ClaveCorrecta { get; init; }
+
+        public Task EnviarAsync(CorreoSaliente correo, CredencialesSmtp credenciales, CancellationToken ct = default)
         {
             if (Error is not null) throw Error;
             Enviados.Add(correo);
+            Credenciales.Add(credenciales);
+            return Task.CompletedTask;
+        }
+
+        public Task ProbarAsync(CredencialesSmtp credenciales, CancellationToken ct = default)
+        {
+            if (ClaveCorrecta is not null && credenciales.Password != ClaveCorrecta)
+                throw new AuthenticationException("535 Incorrect authentication data");
+            Credenciales.Add(credenciales);
             return Task.CompletedTask;
         }
     }

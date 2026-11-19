@@ -23,6 +23,8 @@ builder.Services.AddNegocio();
 builder.Services.Configure<DatosEmpresaOptions>(builder.Configuration.GetSection(DatosEmpresaOptions.SeccionConfiguracion));
 builder.Services.Configure<Ferrealiados.Cotizaciones.Negocio.Cartera.SmtpOptions>(
     builder.Configuration.GetSection(Ferrealiados.Cotizaciones.Negocio.Cartera.SmtpOptions.SeccionConfiguracion));
+builder.Services.Configure<Ferrealiados.Cotizaciones.Negocio.Cartera.CifradoOptions>(
+    builder.Configuration.GetSection(Ferrealiados.Cotizaciones.Negocio.Cartera.CifradoOptions.SeccionConfiguracion));
 
 var jwtSecret = builder.Configuration["Jwt:Secret"]
     ?? throw new InvalidOperationException("Falta configurar Jwt:Secret.");

@@ -43,11 +43,14 @@ services:
       Jwt__Audience: Ferrealiados.Cotizaciones
       Jwt__ExpiracionMinutos: "480"
       Cors__AllowedOrigins__0: http://localhost:4300
-      # Correo de salida del módulo de Cartera (estado de cuenta a clientes). La clave va solo en el .env.
+      # Correo de salida del módulo de Cartera (estado de cuenta a clientes). La clave del buzón la
+      # guarda un Admin desde Configuración → Envío de cartera (cifrada con CIFRADO_CLAVE); si
+      # SMTP_PASSWORD trae algo, esa tiene prioridad.
       Smtp__Host: ${SMTP_HOST:-}
       Smtp__Puerto: ${SMTP_PORT:-465}
       Smtp__Usuario: ${SMTP_USER:-}
       Smtp__Password: ${SMTP_PASSWORD:-}
+      Cifrado__Clave: ${CIFRADO_CLAVE:-}
     ports:
       - "8090:8080"
 

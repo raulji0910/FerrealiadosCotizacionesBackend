@@ -1,12 +1,13 @@
 using MailKit.Net.Smtp;
 using MailKit.Security;
-using Microsoft.Extensions.Options;
 using MimeKit;
 
 namespace Ferrealiados.Cotizaciones.Negocio.Cartera;
 
-// Servidor de correo de salida. La clave NUNCA va en appsettings.json ni en la BD: en producción
-// llega por variable de entorno (Smtp__Password, desde el .env del servidor).
+// Servidor de correo de salida (host y puerto, del .env del servidor: Smtp__Host / Smtp__Puerto).
+// La clave puede venir de dos lados: Smtp__Password del .env (tiene prioridad) o la que un Admin
+// guarda desde Configuración → Envío de cartera (cifrada en la BD con ICifradorSecretos).
+// Nunca va en appsettings.json ni viaja de vuelta al navegador.
 public class SmtpOptions
 {
     public const string SeccionConfiguracion = "Smtp";
@@ -16,6 +17,8 @@ public class SmtpOptions
     public string? Usuario { get; set; }
     public string? Password { get; set; }
 }
+
+public record CredencialesSmtp(string Host, int Puerto, string Usuario, string Password);
 
 public record CorreoSaliente(
     string Remitente,
@@ -27,24 +30,16 @@ public record CorreoSaliente(
 
 public interface IEnviadorCorreo
 {
-    bool EstaConfigurado { get; }
-    Task EnviarAsync(CorreoSaliente correo, CancellationToken ct = default);
+    Task EnviarAsync(CorreoSaliente correo, CredencialesSmtp credenciales, CancellationToken ct = default);
+
+    // Solo se conecta y se autentica (no envía nada): para validar la clave antes de guardarla.
+    Task ProbarAsync(CredencialesSmtp credenciales, CancellationToken ct = default);
 }
 
-public class SmtpEnviadorCorreo(IOptions<SmtpOptions> opciones) : IEnviadorCorreo
+public class SmtpEnviadorCorreo : IEnviadorCorreo
 {
-    private readonly SmtpOptions _opciones = opciones.Value;
-
-    public bool EstaConfigurado =>
-        !string.IsNullOrWhiteSpace(_opciones.Host) &&
-        !string.IsNullOrWhiteSpace(_opciones.Usuario) &&
-        !string.IsNullOrWhiteSpace(_opciones.Password);
-
-    public async Task EnviarAsync(CorreoSaliente correo, CancellationToken ct = default)
+    public async Task EnviarAsync(CorreoSaliente correo, CredencialesSmtp credenciales, CancellationToken ct = default)
     {
-        if (!EstaConfigurado)
-            throw new InvalidOperationException("El servidor de correo (SMTP) no está configurado en el servidor.");
-
         var mensaje = new MimeMessage();
         mensaje.From.Add(new MailboxAddress(correo.NombreRemitente, correo.Remitente));
         mensaje.ReplyTo.Add(new MailboxAddress(correo.NombreRemitente, correo.Remitente));
@@ -53,12 +48,34 @@ public class SmtpEnviadorCorreo(IOptions<SmtpOptions> opciones) : IEnviadorCorre
         mensaje.Subject = correo.Asunto;
         mensaje.Body = new BodyBuilder { HtmlBody = correo.Html }.ToMessageBody();
 
-        using var cliente = new SmtpClient { Timeout = 30_000 };
-        // 465 = SSL directo; otro puerto (587) = STARTTLS si el servidor lo ofrece.
-        var seguridad = _opciones.Puerto == 465 ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTlsWhenAvailable;
-        await cliente.ConnectAsync(_opciones.Host!, _opciones.Puerto, seguridad, ct);
-        await cliente.AuthenticateAsync(_opciones.Usuario!, _opciones.Password!, ct);
+        using var cliente = await ConectarAsync(credenciales, ct);
         await cliente.SendAsync(mensaje, ct);
         await cliente.DisconnectAsync(true, ct);
+    }
+
+    public async Task ProbarAsync(CredencialesSmtp credenciales, CancellationToken ct = default)
+    {
+        using var cliente = await ConectarAsync(credenciales, ct);
+        await cliente.DisconnectAsync(true, ct);
+    }
+
+    private static async Task<SmtpClient> ConectarAsync(CredencialesSmtp credenciales, CancellationToken ct)
+    {
+        var cliente = new SmtpClient { Timeout = 30_000 };
+        try
+        {
+            // 465 = SSL directo; otro puerto (587) = STARTTLS si el servidor lo ofrece.
+            var seguridad = credenciales.Puerto == 465 ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTlsWhenAvailable;
+            await cliente.ConnectAsync(credenciales.Host, credenciales.Puerto, seguridad, ct);
+            // Mailpit (pruebas locales) no pide autenticación.
+            if (cliente.Capabilities.HasFlag(SmtpCapabilities.Authentication))
+                await cliente.AuthenticateAsync(credenciales.Usuario, credenciales.Password, ct);
+            return cliente;
+        }
+        catch
+        {
+            cliente.Dispose();
+            throw;
+        }
     }
 }

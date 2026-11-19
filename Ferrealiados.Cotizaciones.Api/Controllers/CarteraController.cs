@@ -94,6 +94,32 @@ public class CarteraController(ICarteraService carteraService) : ControllerBase
         }
     }
 
+    // La clave del buzón remitente: se comprueba contra el servidor de correo y se guarda cifrada.
+    // Nunca se devuelve (ni aquí ni en GET configuracion).
+    [HttpPut("configuracion/clave-correo")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult<ConfiguracionCarteraDto>> GuardarClaveCorreo(GuardarClaveCorreoDto dto, CancellationToken ct)
+    {
+        var usuario = User.FindFirstValue(ClaimTypes.Email) ?? User.Identity?.Name ?? "desconocido";
+        try
+        {
+            return Ok(await carteraService.GuardarClaveCorreoAsync(dto.Clave, usuario, ct));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(ex.Message);
+        }
+    }
+
+    [HttpPost("configuracion/probar-correo")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult<PruebaCorreoDto>> ProbarCorreo(CancellationToken ct)
+        => Ok(await carteraService.ProbarCorreoAsync(ct));
+
     [HttpPost("sincronizar")]
     [Authorize(Roles = "Admin")]
     [RequestSizeLimit(50_000_000)]

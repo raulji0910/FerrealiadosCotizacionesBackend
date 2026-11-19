@@ -183,6 +183,20 @@ public class ConfiguracionCartera
 
     // Texto al final del correo: cuentas bancarias, a quién enviar el soporte de pago, etc.
     public string? DatosPago { get; set; }
+
+    // Clave del buzón remitente, CIFRADA (AES-GCM con la llave CIFRADO_CLAVE que solo está en el
+    // servidor). Nunca se devuelve al navegador. La Smtp__Password del .env, si existe, tiene prioridad.
+    [MaxLength(1000)]
+    public string? ClaveCorreoCifrada { get; set; }
+
+    // Cuenta para la que se guardó la clave: si después cambian el remitente, esa clave ya no sirve.
+    [MaxLength(200)]
+    public string? ClaveCorreoCuenta { get; set; }
+
+    public DateTime? ClaveCorreoActualizada { get; set; }
+
+    [MaxLength(200)]
+    public string? ClaveCorreoActualizadaPor { get; set; }
 }
 
 // Textos iniciales del correo. Marcadores que se reemplazan al enviar: {cliente}, {nit},

@@ -152,4 +152,15 @@ public record ConfiguracionCarteraDto(
     string Asunto,
     string Cuerpo,
     string? DatosPago,
-    bool ServidorCorreoConfigurado);
+    bool ServidorCorreoConfigurado,
+    // De dónde sale la clave del remitente: "Servidor" (.env), "Aplicacion" (guardada aquí) o "Ninguna".
+    // Solo lectura: al guardar la configuración estos campos se ignoran.
+    string OrigenClaveCorreo = "Ninguna",
+    DateTime? ClaveCorreoActualizada = null,
+    string? ClaveCorreoActualizadaPor = null,
+    // Hay una clave guardada pero es de otra cuenta (cambiaron el remitente después).
+    string? ClaveCorreoDeOtraCuenta = null);
+
+public record GuardarClaveCorreoDto(string Clave);
+
+public record PruebaCorreoDto(bool Exitosa, string Mensaje);

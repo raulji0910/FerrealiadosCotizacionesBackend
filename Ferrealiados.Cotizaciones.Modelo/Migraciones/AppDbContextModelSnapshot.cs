@@ -130,6 +130,21 @@ namespace Ferrealiados.Cotizaciones.Modelo.Migraciones
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)");
 
+                    b.Property<DateTime?>("ClaveCorreoActualizada")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ClaveCorreoActualizadaPor")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("ClaveCorreoCifrada")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("ClaveCorreoCuenta")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<string>("Copias")
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");

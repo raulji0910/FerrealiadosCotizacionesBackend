@@ -5,7 +5,9 @@ using Ferrealiados.Cotizaciones.Modelo.Entidades;
 using Ferrealiados.Cotizaciones.Negocio.Cartera;
 using Ferrealiados.Cotizaciones.Negocio.DTOs;
 using Ferrealiados.Cotizaciones.Negocio.Interfaces;
+using MailKit.Security;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Ferrealiados.Cotizaciones.Negocio.Servicios;
 
@@ -15,7 +17,12 @@ namespace Ferrealiados.Cotizaciones.Negocio.Servicios;
 /// por correo a los contactos de cobro (que se manejan aquí, no en WO: los correos de WO son los de
 /// facturación). Las remisiones con saldo no se cobran: son las "remisiones sin factura".
 /// </summary>
-public class CarteraService(AppDbContext db, IEnviadorCorreo enviador, TimeProvider reloj) : ICarteraService
+public class CarteraService(
+    AppDbContext db,
+    IEnviadorCorreo enviador,
+    IOptions<SmtpOptions> smtp,
+    ICifradorSecretos cifrador,
+    TimeProvider reloj) : ICarteraService
 {
     // Colombia no tiene horario de verano: la fecha local es siempre UTC-5.
     private static readonly TimeSpan HoraColombia = TimeSpan.FromHours(-5);
@@ -370,10 +377,13 @@ public class CarteraService(AppDbContext db, IEnviadorCorreo enviador, TimeProvi
             return new ResultadoEnvioCarteraDto(correo.Nit, correo.NombreCliente, false, correo.NoSePuedeEnviar);
 
         var config = await LeerConfiguracionAsync(ct);
+        var credenciales = ResolverCredenciales(config).Credenciales
+            ?? throw new InvalidOperationException(
+                "Falta la clave del correo remitente: un administrador la debe guardar en Configuración → Envío de cartera.");
         string? error = null;
         try
         {
-            await enviador.EnviarAsync(new CorreoSaliente(config.Remitente, config.NombreRemitente, correo.Para, correo.Copias, correo.Asunto, correo.Html), ct);
+            await enviador.EnviarAsync(new CorreoSaliente(config.Remitente, config.NombreRemitente, correo.Para, correo.Copias, correo.Asunto, correo.Html), credenciales, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException and not InvalidOperationException)
         {
@@ -573,7 +583,109 @@ public class CarteraService(AppDbContext db, IEnviadorCorreo enviador, TimeProvi
     };
 
     private ConfiguracionCarteraDto MapConfiguracion(ConfiguracionCartera c)
-        => new(c.Remitente, c.NombreRemitente, c.Copias, c.SaldoMinimo, c.Asunto, c.Cuerpo, c.DatosPago, enviador.EstaConfigurado);
+    {
+        var (credenciales, origen, deOtraCuenta) = ResolverCredenciales(c);
+        return new(
+            c.Remitente, c.NombreRemitente, c.Copias, c.SaldoMinimo, c.Asunto, c.Cuerpo, c.DatosPago,
+            credenciales is not null,
+            origen,
+            origen == "Aplicacion" ? c.ClaveCorreoActualizada : null,
+            origen == "Aplicacion" ? c.ClaveCorreoActualizadaPor : null,
+            deOtraCuenta);
+    }
+
+    // ---------------- Clave del correo remitente ----------------
+
+    // La Smtp__Password del .env manda; si no hay, la guardada aquí (solo si es del remitente actual).
+    private (CredencialesSmtp? Credenciales, string Origen, string? DeOtraCuenta) ResolverCredenciales(ConfiguracionCartera config)
+    {
+        var o = smtp.Value;
+        if (string.IsNullOrWhiteSpace(o.Host)) return (null, "Ninguna", null);
+
+        if (!string.IsNullOrWhiteSpace(o.Password))
+        {
+            var usuario = string.IsNullOrWhiteSpace(o.Usuario) ? config.Remitente : o.Usuario.Trim();
+            return (new CredencialesSmtp(o.Host.Trim(), o.Puerto, usuario, o.Password), "Servidor", null);
+        }
+
+        if (string.IsNullOrEmpty(config.ClaveCorreoCifrada)) return (null, "Ninguna", null);
+        if (!string.Equals(config.ClaveCorreoCuenta, config.Remitente, StringComparison.OrdinalIgnoreCase))
+            return (null, "Ninguna", config.ClaveCorreoCuenta);
+
+        var clave = cifrador.Descifrar(config.ClaveCorreoCifrada);
+        return clave is null
+            ? (null, "Ninguna", null)
+            : (new CredencialesSmtp(o.Host.Trim(), o.Puerto, config.Remitente, clave), "Aplicacion", null);
+    }
+
+    public async Task<ConfiguracionCarteraDto> GuardarClaveCorreoAsync(string clave, string usuario, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(clave))
+            throw new ArgumentException("Escribe la clave del correo.");
+        if (clave.Length > 200)
+            throw new ArgumentException("La clave es demasiado larga.");
+
+        var host = smtp.Value.Host?.Trim();
+        if (string.IsNullOrEmpty(host))
+            throw new InvalidOperationException("Falta el servidor de correo (SMTP_HOST) en el .env del servidor.");
+        if (!cifrador.EstaDisponible)
+            throw new InvalidOperationException("Falta la llave de cifrado (CIFRADO_CLAVE) en el .env del servidor.");
+
+        var config = await db.ConfiguracionCartera.FirstOrDefaultAsync(ct);
+        if (config is null)
+        {
+            config = NuevaConfiguracion();
+            db.ConfiguracionCartera.Add(config);
+        }
+
+        // Antes de guardar se comprueba con el servidor de correo: así no queda guardada una clave mala.
+        try
+        {
+            await enviador.ProbarAsync(new CredencialesSmtp(host, smtp.Value.Puerto, config.Remitente, clave), ct);
+        }
+        catch (AuthenticationException)
+        {
+            throw new ArgumentException($"El servidor de correo rechazó la clave de {config.Remitente}. Revísala y vuelve a intentar.");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException and not ArgumentException)
+        {
+            throw new InvalidOperationException($"No se pudo conectar con el servidor de correo ({host}): {ex.Message}");
+        }
+
+        config.ClaveCorreoCifrada = cifrador.Cifrar(clave);
+        config.ClaveCorreoCuenta = config.Remitente;
+        config.ClaveCorreoActualizada = reloj.GetUtcNow().UtcDateTime;
+        config.ClaveCorreoActualizadaPor = Truncar(usuario, 200);
+        await db.SaveChangesAsync(ct);
+        return MapConfiguracion(config);
+    }
+
+    public async Task<PruebaCorreoDto> ProbarCorreoAsync(CancellationToken ct = default)
+    {
+        var config = await LeerConfiguracionAsync(ct);
+        var (credenciales, origen, deOtraCuenta) = ResolverCredenciales(config);
+        if (credenciales is null)
+        {
+            return new PruebaCorreoDto(false, deOtraCuenta is not null
+                ? $"La clave guardada es de {deOtraCuenta}, pero el remitente ahora es {config.Remitente}: guarda la clave de {config.Remitente}."
+                : "No hay clave del correo remitente guardada.");
+        }
+
+        try
+        {
+            await enviador.ProbarAsync(credenciales, ct);
+            var desde = origen == "Servidor" ? "la clave del servidor (.env)" : "la clave guardada en la aplicación";
+            return new PruebaCorreoDto(true, $"Conexión correcta con {credenciales.Host} como {credenciales.Usuario}, usando {desde}.");
+        }
+        catch (AuthenticationException)
+        {
+            return new PruebaCorreoDto(false, $"El servidor de correo rechazó la clave de {credenciales.Usuario}: guárdala de nuevo.");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new PruebaCorreoDto(false, $"No se pudo conectar con {credenciales.Host}: {ex.Message}");
+        }
+    }
 
     // ---------------- Utilidades ----------------
 

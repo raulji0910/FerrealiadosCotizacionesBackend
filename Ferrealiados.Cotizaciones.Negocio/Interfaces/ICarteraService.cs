@@ -15,4 +15,6 @@ public interface ICarteraService
     Task<IReadOnlyList<EnvioCarteraDto>> ObtenerEnviosAsync(int maximo, CancellationToken ct = default);
     Task<ConfiguracionCarteraDto> ObtenerConfiguracionAsync(CancellationToken ct = default);
     Task<ConfiguracionCarteraDto> ActualizarConfiguracionAsync(ConfiguracionCarteraDto dto, CancellationToken ct = default);
+    Task<ConfiguracionCarteraDto> GuardarClaveCorreoAsync(string clave, string usuario, CancellationToken ct = default);
+    Task<PruebaCorreoDto> ProbarCorreoAsync(CancellationToken ct = default);
 }
