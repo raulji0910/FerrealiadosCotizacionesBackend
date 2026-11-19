@@ -1,4 +1,5 @@
 using Ferrealiados.Cotizaciones.Modelo;
+using Ferrealiados.Cotizaciones.Modelo.Entidades;
 using Ferrealiados.Cotizaciones.Negocio.Cartera;
 using Ferrealiados.Cotizaciones.Negocio.DTOs;
 using Ferrealiados.Cotizaciones.Negocio.Servicios;
@@ -229,6 +230,47 @@ public class CarteraServiceTests
         var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
             servicio.ActualizarContactoAsync("900", new ContactoCobroDto("pagos@uno.com; 302 4226878", null, null)));
         Assert.Contains("302", ex.Message);
+    }
+
+    [Fact]
+    public async Task ActualizarContacto_ConMasDeDosCorreos_Rechaza()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        await servicio.SincronizarAsync(Entrada(Partida(1, "900", 50000m, "2026-11-01")));
+
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
+            servicio.ActualizarContactoAsync("900", new ContactoCobroDto("a@uno.com; b@uno.com; c@uno.com", null, null)));
+        Assert.Contains("2 correos", ex.Message);
+
+        var d = await servicio.ActualizarContactoAsync("900", new ContactoCobroDto("a@uno.com; b@uno.com", null, null));
+        Assert.Equal("a@uno.com; b@uno.com", d!.CorreosCobro);
+    }
+
+    [Fact]
+    public async Task CargarContactos_ConMasDeDosCorreos_GuardaLosDosPrimerosYAvisa()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        await servicio.SincronizarAsync(Entrada(Partida(1, "900", 50000m, "2026-11-01")));
+
+        var r = await servicio.CargarContactosAsync([new ContactoCobroCargaDto("900", "UNO", "a@uno.com; b@uno.com; c@uno.com", null, null)]);
+
+        Assert.Equal("a@uno.com; b@uno.com", (await servicio.ObtenerClienteAsync("900"))!.CorreosCobro);
+        Assert.Contains("c@uno.com", Assert.Single(r.Avisos));
+    }
+
+    [Fact]
+    public async Task ObtenerCliente_TraeElCorreoDelModuloClientes_ConNitConPuntosYDigito()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        await servicio.SincronizarAsync(Entrada(Partida(1, "900632353", 50000m, "2026-11-01")));
+        db.Clientes.Add(new Cliente { Nombre = "OTRO", Nit = "800.111.222-3", Email = "otro@otro.com" });
+        db.Clientes.Add(new Cliente { Nombre = "JIMACO", Nit = "900.632.353-1", Email = " gerencia@jimaco.com ", Activo = true });
+        await db.SaveChangesAsync();
+
+        Assert.Equal("gerencia@jimaco.com", (await servicio.ObtenerClienteAsync("900632353"))!.CorreoModuloClientes);
     }
 
     [Fact]

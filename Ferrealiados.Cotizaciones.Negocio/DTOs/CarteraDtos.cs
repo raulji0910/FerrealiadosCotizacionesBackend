@@ -103,8 +103,11 @@ public record ClienteCarteraDetalleDto(
     string? Telefono,
     EdadesCarteraDto Edades,
     IReadOnlyList<DocumentoCarteraDto> Documentos,
-    IReadOnlyList<EnvioCarteraDto> Envios);
+    IReadOnlyList<EnvioCarteraDto> Envios,
+    // Correo que tiene el cliente en el módulo Clientes (el de cotizaciones), solo de referencia.
+    string? CorreoModuloClientes = null);
 
+// CorreosCobro: hasta dos correos separados por punto y coma (el segundo es opcional).
 public record ContactoCobroDto(string? CorreosCobro, string? Contacto, string? Telefono);
 
 // Carga de varios contactos a la vez (p. ej. la lista inicial que se revisó en Excel).

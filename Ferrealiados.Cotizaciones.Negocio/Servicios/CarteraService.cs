@@ -27,6 +27,9 @@ public class CarteraService(
     // Colombia no tiene horario de verano: la fecha local es siempre UTC-5.
     private static readonly TimeSpan HoraColombia = TimeSpan.FromHours(-5);
 
+    // Cada cliente tiene un correo de cobro y, opcionalmente, un segundo.
+    public const int MaximoCorreosCobro = 2;
+
     // ---------------- Sincronización desde World Office ----------------
 
     public async Task<SincronizacionCarteraResultadoDto> SincronizarAsync(SincronizacionCarteraEntradaDto entrada, CancellationToken ct = default)
@@ -325,7 +328,29 @@ public class CarteraService(
             cliente?.Telefono,
             Edades(partidas, hoy),
             Documentos(partidas, hoy),
-            envios.Select(MapEnvio).ToList());
+            envios.Select(MapEnvio).ToList(),
+            await CorreoModuloClientesAsync(nit, ct));
+    }
+
+    // El módulo Clientes guarda el NIT a mano ("900.632.353-1"); la cartera, como lo trae WO ("900632353").
+    private async Task<string?> CorreoModuloClientesAsync(string nit, CancellationToken ct)
+    {
+        var conCorreo = await db.Clientes.AsNoTracking()
+            .Where(c => c.Nit != null && c.Email != null && c.Email != "")
+            .Select(c => new { c.Nit, c.Email, c.Activo })
+            .ToListAsync(ct);
+        return conCorreo
+            .Where(c => NitSinDigitoVerificacion(c.Nit) == nit)
+            .OrderByDescending(c => c.Activo)
+            .Select(c => c.Email!.Trim())
+            .FirstOrDefault();
+    }
+
+    private static string NitSinDigitoVerificacion(string? nit)
+    {
+        var limpio = new string((nit ?? "").Where(ch => char.IsDigit(ch) || ch == '-').ToArray());
+        var guion = limpio.IndexOf('-');
+        return guion >= 0 ? limpio[..guion] : limpio;
     }
 
     // ---------------- Correo ----------------
@@ -468,7 +493,7 @@ public class CarteraService(
 
             var invalidos = Aplicar(cliente, c.CorreosCobro, c.Contacto, c.Telefono, lanzarSiInvalido: false);
             if (invalidos.Count > 0)
-                avisos.Add($"{cliente.Nombre} ({nit}): se ignoró lo que no es un correo válido: {string.Join(", ", invalidos)}.");
+                avisos.Add($"{cliente.Nombre} ({nit}): se ignoró: {string.Join(", ", invalidos)}.");
         }
 
         await db.SaveChangesAsync(ct);
@@ -482,9 +507,17 @@ public class CarteraService(
         if (lanzarSiInvalido && invalidos.Count > 0)
             throw new ArgumentException($"No son correos válidos: {string.Join(", ", invalidos)}.");
 
+        if (correos.Count > MaximoCorreosCobro)
+        {
+            if (lanzarSiInvalido)
+                throw new ArgumentException($"Solo se permiten {MaximoCorreosCobro} correos de cobro por cliente.");
+            invalidos.AddRange(correos.Skip(MaximoCorreosCobro).Select(c => $"{c} (sobra: máximo {MaximoCorreosCobro})"));
+            correos = correos.Take(MaximoCorreosCobro).ToList();
+        }
+
         var texto = correos.Count > 0 ? string.Join("; ", correos) : null;
         if (texto?.Length > 1000)
-            throw new ArgumentException("Son demasiados correos para un cliente.");
+            throw new ArgumentException("Los correos son demasiado largos.");
 
         cliente.CorreosCobro = texto;
         cliente.Contacto = Vacio(contacto, 200);
