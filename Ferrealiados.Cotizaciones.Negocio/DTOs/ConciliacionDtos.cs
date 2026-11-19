@@ -86,7 +86,44 @@ public record FacturaConciliadaDto(
     // Por dónde entró la factura: "Correo", "Carpeta" o "Dian" (ZIP subido desde la pantalla).
     string Origen);
 
-public record OrdenPendienteDto(int Numero, DateOnly Fecha, string NitProveedor, string NombreProveedor, decimal Subtotal, decimal Iva, decimal SaldoSubtotal);
+// Observaciones: cuántas entradas tiene el historial de revisión; UltimaObservacion: el texto más
+// reciente (para el tooltip); NoRequiereFactura: quien revisó la marcó así (sigue en la lista).
+public record OrdenPendienteDto(
+    int Numero,
+    DateOnly Fecha,
+    string NitProveedor,
+    string NombreProveedor,
+    decimal Subtotal,
+    decimal Iva,
+    decimal SaldoSubtotal,
+    int IdAsientoContable = 0,
+    int Observaciones = 0,
+    string? UltimaObservacion = null,
+    bool NoRequiereFactura = false);
+
+// ---- Observaciones de las OC sin factura ----
+
+public enum AccionObservacionOrden
+{
+    Observacion,
+    MarcarNoRequiereFactura,
+    QuitarMarcaNoRequiereFactura
+}
+
+public record NuevaObservacionOrdenDto(string Texto, AccionObservacionOrden Accion = AccionObservacionOrden.Observacion);
+
+public record ObservacionOrdenDto(int Id, string Tipo, string Texto, string Usuario, string NombreUsuario, DateTime Fecha);
+
+public record ObservacionesOrdenDto(
+    int IdAsientoContable,
+    int Numero,
+    DateOnly Fecha,
+    string NitProveedor,
+    string NombreProveedor,
+    decimal Subtotal,
+    decimal Iva,
+    bool NoRequiereFactura,
+    IReadOnlyList<ObservacionOrdenDto> Historial);
 
 public record OrdenFacturadaSinXmlDto(
     int Numero,

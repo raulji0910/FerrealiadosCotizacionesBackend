@@ -10,4 +10,6 @@ public interface IConciliacionService
     Task<SincronizacionFacturasCompraResultadoDto> SincronizarFacturasCompraAsync(SincronizacionFacturasCompraEntradaDto entrada, CancellationToken ct = default);
     Task<ConciliacionDto> ConciliarAsync(DateOnly desde, DateOnly hasta, CancellationToken ct = default);
     Task<DetalleFacturaConciliadaDto?> ObtenerDetalleAsync(int facturaId, CancellationToken ct = default);
+    Task<ObservacionesOrdenDto?> ObtenerObservacionesOrdenAsync(int idAsientoContable, CancellationToken ct = default);
+    Task<ObservacionesOrdenDto?> AgregarObservacionOrdenAsync(int idAsientoContable, NuevaObservacionOrdenDto dto, string usuario, string nombreUsuario, CancellationToken ct = default);
 }

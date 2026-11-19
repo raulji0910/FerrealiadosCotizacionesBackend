@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Ferrealiados.Cotizaciones.Negocio.DTOs;
 using Ferrealiados.Cotizaciones.Negocio.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -34,6 +35,31 @@ public class ConciliacionController(IConciliacionService conciliacionService, Ti
     {
         var detalle = await conciliacionService.ObtenerDetalleAsync(id, ct);
         return detalle is null ? NotFound() : Ok(detalle);
+    }
+
+    // Historial de revisión de una OC sin factura (por IdAsientoContable de WO).
+    [HttpGet("ordenes/{idAsientoContable:int}/observaciones")]
+    public async Task<ActionResult<ObservacionesOrdenDto>> Observaciones(int idAsientoContable, CancellationToken ct = default)
+    {
+        var observaciones = await conciliacionService.ObtenerObservacionesOrdenAsync(idAsientoContable, ct);
+        return observaciones is null ? NotFound() : Ok(observaciones);
+    }
+
+    [HttpPost("ordenes/{idAsientoContable:int}/observaciones")]
+    [Authorize(Roles = "Admin,Conciliador")]
+    public async Task<ActionResult<ObservacionesOrdenDto>> AgregarObservacion(int idAsientoContable, NuevaObservacionOrdenDto dto, CancellationToken ct = default)
+    {
+        var usuario = User.FindFirstValue(ClaimTypes.Email) ?? "desconocido";
+        var nombre = User.FindFirstValue(ClaimTypes.Name) ?? usuario;
+        try
+        {
+            var observaciones = await conciliacionService.AgregarObservacionOrdenAsync(idAsientoContable, dto, usuario, nombre, ct);
+            return observaciones is null ? NotFound() : Ok(observaciones);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 
     [HttpPost("facturas")]

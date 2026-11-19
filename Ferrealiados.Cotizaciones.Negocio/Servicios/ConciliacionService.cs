@@ -283,10 +283,28 @@ public class ConciliacionService(AppDbContext db, TimeProvider reloj) : IConcili
 
         // Solo las OC del rango consultado: las de la ventana anterior sirven de contexto para el cruce,
         // pero mostrarlas como "sin factura" confunde cuando sus facturas son de antes del rango.
-        var pendientes = resultado.OrdenesPendientes
+        var ordenesPendientes = resultado.OrdenesPendientes
             .Where(p => p.OrdenCompra.Fecha >= desde && p.OrdenCompra.Fecha <= hasta)
-            .Select(p => new OrdenPendienteDto(p.OrdenCompra.Numero, p.OrdenCompra.Fecha, p.OrdenCompra.NitProveedor,
-                p.OrdenCompra.NombreProveedor, p.OrdenCompra.Subtotal, p.OrdenCompra.Iva, p.SaldoSubtotal))
+            .ToList();
+        var idsPendientes = ordenesPendientes.Select(p => p.OrdenCompra.IdAsientoContable).ToList();
+        var observaciones = (await db.ObservacionesOrdenCompra.AsNoTracking()
+                .Where(o => idsPendientes.Contains(o.IdAsientoContable))
+                .ToListAsync(ct))
+            .GroupBy(o => o.IdAsientoContable)
+            .ToDictionary(g => g.Key, g => g.OrderBy(o => o.Fecha).ThenBy(o => o.Id).ToList());
+
+        var pendientes = ordenesPendientes
+            .Select(p =>
+            {
+                observaciones.TryGetValue(p.OrdenCompra.IdAsientoContable, out var historial);
+                historial ??= [];
+                return new OrdenPendienteDto(p.OrdenCompra.Numero, p.OrdenCompra.Fecha, p.OrdenCompra.NitProveedor,
+                    p.OrdenCompra.NombreProveedor, p.OrdenCompra.Subtotal, p.OrdenCompra.Iva, p.SaldoSubtotal,
+                    p.OrdenCompra.IdAsientoContable,
+                    historial.Count,
+                    historial.LastOrDefault()?.Texto,
+                    NoRequiereFactura(historial));
+            })
             .OrderByDescending(p => p.Fecha)
             .ToList();
 
@@ -320,6 +338,76 @@ public class ConciliacionService(AppDbContext db, TimeProvider reloj) : IConcili
 
         return new ConciliacionDto(desde, hasta, resumen, facturas, pendientes, facturadasSinXml, invalidas, ultimaSincronizacion, ultimaFactura);
     }
+
+    // ---------------- Observaciones de las OC sin factura ----------------
+
+    public async Task<ObservacionesOrdenDto?> ObtenerObservacionesOrdenAsync(int idAsientoContable, CancellationToken ct = default)
+    {
+        var oc = await db.OrdenesCompraWorldOffice.AsNoTracking().FirstOrDefaultAsync(o => o.IdAsientoContable == idAsientoContable, ct);
+        if (oc is null) return null;
+
+        var historial = await db.ObservacionesOrdenCompra.AsNoTracking()
+            .Where(o => o.IdAsientoContable == idAsientoContable)
+            .OrderBy(o => o.Fecha).ThenBy(o => o.Id)
+            .ToListAsync(ct);
+
+        return new ObservacionesOrdenDto(oc.IdAsientoContable, oc.Numero, oc.Fecha, oc.NitProveedor, oc.NombreProveedor,
+            oc.Subtotal, oc.Iva, NoRequiereFactura(historial),
+            historial
+                .OrderByDescending(o => o.Fecha).ThenByDescending(o => o.Id)
+                .Select(o => new ObservacionOrdenDto(o.Id, o.Tipo.ToString(), o.Texto, o.Usuario, o.NombreUsuario, o.Fecha))
+                .ToList());
+    }
+
+    public async Task<ObservacionesOrdenDto?> AgregarObservacionOrdenAsync(int idAsientoContable, NuevaObservacionOrdenDto dto,
+        string usuario, string nombreUsuario, CancellationToken ct = default)
+    {
+        var texto = dto.Texto?.Trim() ?? "";
+        if (texto.Length == 0)
+            throw new ArgumentException("Escribe la observación: qué se encontró o por qué se marca.");
+        if (texto.Length > 2000)
+            throw new ArgumentException("La observación puede tener máximo 2000 caracteres.");
+
+        var oc = await db.OrdenesCompraWorldOffice.AsNoTracking().FirstOrDefaultAsync(o => o.IdAsientoContable == idAsientoContable, ct);
+        if (oc is null) return null;
+
+        var historial = await db.ObservacionesOrdenCompra.AsNoTracking()
+            .Where(o => o.IdAsientoContable == idAsientoContable)
+            .ToListAsync(ct);
+        var marcada = NoRequiereFactura(historial);
+
+        var tipo = dto.Accion switch
+        {
+            AccionObservacionOrden.MarcarNoRequiereFactura when marcada =>
+                throw new ArgumentException("Esta OC ya está marcada como que no requiere factura."),
+            AccionObservacionOrden.QuitarMarcaNoRequiereFactura when !marcada =>
+                throw new ArgumentException("Esta OC no está marcada como que no requiere factura."),
+            AccionObservacionOrden.MarcarNoRequiereFactura => TipoObservacionOrden.MarcaNoRequiereFactura,
+            AccionObservacionOrden.QuitarMarcaNoRequiereFactura => TipoObservacionOrden.QuitaMarcaNoRequiereFactura,
+            _ => TipoObservacionOrden.Observacion
+        };
+
+        db.ObservacionesOrdenCompra.Add(new ObservacionOrdenCompra
+        {
+            IdAsientoContable = idAsientoContable,
+            NumeroOrden = oc.Numero,
+            Tipo = tipo,
+            Texto = texto,
+            Usuario = usuario.Length > 200 ? usuario[..200] : usuario,
+            NombreUsuario = nombreUsuario.Length > 200 ? nombreUsuario[..200] : nombreUsuario,
+            Fecha = reloj.GetUtcNow().UtcDateTime
+        });
+        await db.SaveChangesAsync(ct);
+
+        return await ObtenerObservacionesOrdenAsync(idAsientoContable, ct);
+    }
+
+    // La marca vigente es la última acción de marcar/quitar (las observaciones simples no la cambian).
+    private static bool NoRequiereFactura(IEnumerable<ObservacionOrdenCompra> historial)
+        => historial
+            .Where(o => o.Tipo != TipoObservacionOrden.Observacion)
+            .OrderBy(o => o.Fecha).ThenBy(o => o.Id)
+            .LastOrDefault()?.Tipo == TipoObservacionOrden.MarcaNoRequiereFactura;
 
     public async Task<DetalleFacturaConciliadaDto?> ObtenerDetalleAsync(int facturaId, CancellationToken ct = default)
     {

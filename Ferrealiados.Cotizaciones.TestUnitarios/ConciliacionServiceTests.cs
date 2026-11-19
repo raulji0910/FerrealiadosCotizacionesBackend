@@ -239,6 +239,44 @@ public class ConciliacionServiceTests
         Assert.Equal("INVECRYL 500 X 750 GR", Assert.Single(detalle.RenglonesOrdenCompra).Descripcion);
     }
 
+    [Fact]
+    public async Task ObservacionesOrden_HistorialYMarcaNoRequiereFactura_SinSacarLaOcDeLaLista()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        await servicio.SincronizarOrdenesAsync([Oc(7830, 1332, 10m, 7500m)]);
+
+        await servicio.AgregarObservacionOrdenAsync(7830, new NuevaObservacionOrdenDto("  El proveedor no ha enviado la factura  "), "ana@x.com", "Ana");
+        await servicio.AgregarObservacionOrdenAsync(7830,
+            new NuevaObservacionOrdenDto("Devolución total, no se factura", AccionObservacionOrden.MarcarNoRequiereFactura), "ana@x.com", "Ana");
+
+        var conciliacion = await servicio.ConciliarAsync(Hoy.AddDays(-30), Hoy);
+        var oc = Assert.Single(conciliacion.OrdenesPendientes); // sigue en la lista
+        Assert.Equal(7830, oc.IdAsientoContable);
+        Assert.Equal(2, oc.Observaciones);
+        Assert.True(oc.NoRequiereFactura);
+        Assert.Equal("Devolución total, no se factura", oc.UltimaObservacion);
+
+        var detalle = await servicio.AgregarObservacionOrdenAsync(7830,
+            new NuevaObservacionOrdenDto("Sí llegó la factura física", AccionObservacionOrden.QuitarMarcaNoRequiereFactura), "luis@x.com", "Luis");
+        Assert.False(detalle!.NoRequiereFactura);
+        Assert.Equal(["QuitaMarcaNoRequiereFactura", "MarcaNoRequiereFactura", "Observacion"], detalle.Historial.Select(h => h.Tipo));
+        Assert.Equal("El proveedor no ha enviado la factura", detalle.Historial[2].Texto);
+    }
+
+    [Fact]
+    public async Task ObservacionesOrden_SinTextoOMarcaRepetida_Rechaza()
+    {
+        using var db = CrearContexto();
+        var servicio = CrearServicio(db);
+        await servicio.SincronizarOrdenesAsync([Oc(7830, 1332, 10m, 7500m)]);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => servicio.AgregarObservacionOrdenAsync(7830, new NuevaObservacionOrdenDto("  "), "a", "A"));
+        await Assert.ThrowsAsync<ArgumentException>(() => servicio.AgregarObservacionOrdenAsync(7830,
+            new NuevaObservacionOrdenDto("x", AccionObservacionOrden.QuitarMarcaNoRequiereFactura), "a", "A"));
+        Assert.Null(await servicio.AgregarObservacionOrdenAsync(9999, new NuevaObservacionOrdenDto("x"), "a", "A"));
+    }
+
     private sealed class TiempoFijo(DateTime ahora) : TimeProvider
     {
         private readonly DateTimeOffset _ahora = new(ahora, TimeSpan.Zero);

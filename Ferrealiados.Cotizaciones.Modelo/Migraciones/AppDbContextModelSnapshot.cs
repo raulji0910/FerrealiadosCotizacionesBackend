@@ -606,6 +606,48 @@ namespace Ferrealiados.Cotizaciones.Modelo.Migraciones
                     b.ToTable("FacturaProveedorRenglones");
                 });
 
+            modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.ObservacionOrdenCompra", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("Fecha")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("IdAsientoContable")
+                        .HasColumnType("int");
+
+                    b.Property<string>("NombreUsuario")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("NumeroOrden")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Texto")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<int>("Tipo")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Usuario")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdAsientoContable");
+
+                    b.ToTable("ObservacionesOrdenCompra");
+                });
+
             modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.OrdenCompraWorldOffice", b =>
                 {
                     b.Property<int>("Id")
