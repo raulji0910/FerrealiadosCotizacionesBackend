@@ -10,12 +10,14 @@ public class AuthService(AppDbContext db, IJwtGenerador jwtGenerador) : IAuthSer
     public async Task<LoginResponseDto?> LoginAsync(string email, string password, CancellationToken ct = default)
     {
         var usuario = await db.Usuarios
+            .Include(u => u.Roles)
             .FirstOrDefaultAsync(u => u.Email == email && u.Activo, ct);
 
         if (usuario is null || !BCrypt.Net.BCrypt.Verify(password, usuario.PasswordHash))
             return null;
 
         var token = jwtGenerador.GenerarToken(usuario);
-        return new LoginResponseDto(token, usuario.Nombre, usuario.Email, usuario.Rol.ToString());
+        var roles = UsuarioService.RolesDe(usuario).Select(r => r.ToString()).ToList();
+        return new LoginResponseDto(token, usuario.Nombre, usuario.Email, roles, roles[0]);
     }
 }

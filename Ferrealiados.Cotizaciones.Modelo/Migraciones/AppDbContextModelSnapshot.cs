@@ -1026,6 +1026,19 @@ namespace Ferrealiados.Cotizaciones.Modelo.Migraciones
                     b.ToTable("Usuarios");
                 });
 
+            modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.UsuarioRol", b =>
+                {
+                    b.Property<int>("UsuarioId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Rol")
+                        .HasColumnType("int");
+
+                    b.HasKey("UsuarioId", "Rol");
+
+                    b.ToTable("UsuarioRoles");
+                });
+
             modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.Cotizacion", b =>
                 {
                     b.HasOne("Ferrealiados.Cotizaciones.Modelo.Entidades.Cliente", "Cliente")
@@ -1088,6 +1101,17 @@ namespace Ferrealiados.Cotizaciones.Modelo.Migraciones
                     b.Navigation("Proveedor");
                 });
 
+            modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.UsuarioRol", b =>
+                {
+                    b.HasOne("Ferrealiados.Cotizaciones.Modelo.Entidades.Usuario", "Usuario")
+                        .WithMany("Roles")
+                        .HasForeignKey("UsuarioId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Usuario");
+                });
+
             modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.Cliente", b =>
                 {
                     b.Navigation("Cotizaciones");
@@ -1116,6 +1140,11 @@ namespace Ferrealiados.Cotizaciones.Modelo.Migraciones
             modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.Proveedor", b =>
                 {
                     b.Navigation("Precios");
+                });
+
+            modelBuilder.Entity("Ferrealiados.Cotizaciones.Modelo.Entidades.Usuario", b =>
+                {
+                    b.Navigation("Roles");
                 });
 #pragma warning restore 612, 618
         }

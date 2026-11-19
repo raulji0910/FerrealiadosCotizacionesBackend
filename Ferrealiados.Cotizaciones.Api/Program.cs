@@ -114,6 +114,7 @@ static async Task SeedAdminAsync(AppDbContext db)
         Email = "admin@ferrealiados.local",
         PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin123!"),
         Rol = RolUsuario.Admin,
+        Roles = [new UsuarioRol { Rol = RolUsuario.Admin }],
         Activo = true
     });
 

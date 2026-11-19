@@ -24,7 +24,21 @@ public class Usuario
 
     public required string PasswordHash { get; set; }
 
+    // Rol "principal" de antes del multirol (2026-11-19). Ya NO se usa para permisos (eso sale de
+    // Roles); se sigue llenando con el más alto de los roles para que una versión anterior de la API
+    // pueda volver a correr sobre la misma base si hay que devolverse.
     public RolUsuario Rol { get; set; } = RolUsuario.Cotizador;
 
     public bool Activo { get; set; } = true;
+
+    // Roles del usuario (uno o varios); lo que ve es la suma de todos.
+    public ICollection<UsuarioRol> Roles { get; set; } = new List<UsuarioRol>();
+}
+
+public class UsuarioRol
+{
+    public int UsuarioId { get; set; }
+    public Usuario? Usuario { get; set; }
+
+    public RolUsuario Rol { get; set; }
 }

@@ -18,13 +18,14 @@ public class JwtGenerador(IConfiguration configuration) : IJwtGenerador
         var audience = configuration["Jwt:Audience"] ?? "Ferrealiados.Cotizaciones";
         var expiracionMinutos = int.TryParse(configuration["Jwt:ExpiracionMinutos"], out var m) ? m : 480;
 
-        var claims = new[]
+        var claims = new List<Claim>
         {
             new Claim(ClaimTypes.NameIdentifier, usuario.Id.ToString()),
             new Claim(ClaimTypes.Name, usuario.Nombre),
-            new Claim(ClaimTypes.Email, usuario.Email),
-            new Claim(ClaimTypes.Role, usuario.Rol.ToString())
+            new Claim(ClaimTypes.Email, usuario.Email)
         };
+        // Un claim por rol: [Authorize(Roles = "Admin,Cartera")] acepta si tiene cualquiera.
+        claims.AddRange(UsuarioService.RolesDe(usuario).Select(r => new Claim(ClaimTypes.Role, r.ToString())));
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);

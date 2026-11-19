@@ -10,6 +10,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ProductoProveedorPrecio> ProductoProveedorPrecios => Set<ProductoProveedorPrecio>();
     public DbSet<ConfiguracionSistema> ConfiguracionSistema => Set<ConfiguracionSistema>();
     public DbSet<Usuario> Usuarios => Set<Usuario>();
+    public DbSet<UsuarioRol> UsuarioRoles => Set<UsuarioRol>();
     public DbSet<Cliente> Clientes => Set<Cliente>();
     public DbSet<Cotizacion> Cotizaciones => Set<Cotizacion>();
     public DbSet<CotizacionItem> CotizacionItems => Set<CotizacionItem>();
@@ -65,6 +66,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<Usuario>(e =>
         {
             e.HasIndex(u => u.Email).IsUnique();
+        });
+
+        modelBuilder.Entity<UsuarioRol>(e =>
+        {
+            e.HasKey(r => new { r.UsuarioId, r.Rol });
+            e.HasOne(r => r.Usuario)
+                .WithMany(u => u.Roles)
+                .HasForeignKey(r => r.UsuarioId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ConfiguracionSistema>().HasData(new ConfiguracionSistema
